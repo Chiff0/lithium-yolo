@@ -42,4 +42,11 @@ namespace lithium
         int yolo_classes{80};
         Tensor out{};
     };
+
+    struct NetSpec
+    {
+        int letter_box{};
+        int batch{};
+        int subdivisions{};
+    };
 }
