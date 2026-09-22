@@ -43,7 +43,7 @@ namespace lithium
         Tensor out{};
     };
 
-    struct NetSpec
+    struct NetConfig
     {
         int letter_box{};
         int batch{};
