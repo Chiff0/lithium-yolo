@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <fstream>
 #include <istream>
-#include <optional>
 #include <vector>
 
 
@@ -21,17 +20,11 @@ namespace lithium
             return in.gcount() == bytes;
         }
 
-        // darknet resolves a negative route entry relative to the routing layer itself,
-        // and a route may only ever look backwards
-        std::optional<std::size_t> resolve_route(int entry, std::size_t self)
+        // parse_cfg has already turned every route entry into an absolute index
+        // pointing strictly backwards; anything else is a hand-built cfg
+        bool routes_backwards(int entry, std::size_t self)
         {
-            const long long index = (entry < 0)
-                ? static_cast<long long>(self) + entry
-                : entry;
-
-            if (index < 0 || static_cast<unsigned long long>(index) >= self)
-                return std::nullopt;
-            return static_cast<std::size_t>(index);
+            return entry >= 0 && static_cast<std::size_t>(entry) < self;
         }
     }
 
@@ -146,10 +139,9 @@ namespace lithium
                 long long concatenated = 0;
                 for (int entry : layer.route_layers)
                 {
-                    const auto source = resolve_route(entry, i);
-                    if (!source)
+                    if (!routes_backwards(entry, i))
                         return std::unexpected(parse_error::invalid_input);
-                    concatenated += out_channels[*source];
+                    concatenated += out_channels[entry];
                 }
                 if (concatenated <= 0 || concatenated % layer.route_groups != 0)
                     return std::unexpected(parse_error::invalid_input);

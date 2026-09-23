@@ -63,6 +63,16 @@ namespace lithium
             }
         }
 
+        // darknet reads `pad` as a flag ("pad so the output keeps its size") and
+        // `padding` as the pixel count itself. Neither becomes a count until the
+        // section's `size` is known, and `size` may be written after either of
+        // them, so both are parked here until the section closes.
+        struct RawPad
+        {
+            int flag{};
+            std::optional<int> padding{};
+        };
+
         std::optional<LayerSpec::LayerType> to_layer_type(std::string_view name)
         {
             using LayerType = LayerSpec::LayerType;
@@ -88,6 +98,15 @@ namespace lithium
                 target = Activation::Linear;
             else
                 return false;
+            return true;
+        }
+
+        bool assign_padding(RawPad& raw, std::string_view text)
+        {
+            int padding{};
+            if (!assign(padding, text))
+                return false;
+            raw.padding = padding;
             return true;
         }
 
@@ -147,7 +166,7 @@ namespace lithium
             return true;
         }
 
-        bool apply_conv(LayerSpec& layer, std::string_view key, std::string_view value)
+        bool apply_conv(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             if (key == "batch_normalize")
             {
@@ -162,7 +181,9 @@ namespace lithium
             if (key == "size")
                 return assign(layer.size, value);
             if (key == "pad")
-                return assign(layer.pad, value);
+                return assign(raw.flag, value);
+            if (key == "padding")
+                return assign_padding(raw, value);
             if (key == "stride")
                 return assign(layer.stride, value);
             if (key == "activation")
@@ -170,10 +191,12 @@ namespace lithium
             return false;
         }
 
-        bool apply_maxpool(LayerSpec& layer, std::string_view key, std::string_view value)
+        bool apply_maxpool(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             if (key == "size")
                 return assign(layer.size, value);
+            if (key == "padding")
+                return assign_padding(raw, value);
             if (key == "stride")
                 return assign(layer.stride, value);
             return false;
@@ -209,16 +232,16 @@ namespace lithium
             return true;
         }
 
-        bool apply_layer(LayerSpec& layer, std::string_view key, std::string_view value)
+        bool apply_layer(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             using LayerType = LayerSpec::LayerType;
 
             switch (layer.type)
             {
             case LayerType::Conv:
-                return apply_conv(layer, key, value);
+                return apply_conv(layer, raw, key, value);
             case LayerType::Maxpool:
-                return apply_maxpool(layer, key, value);
+                return apply_maxpool(layer, raw, key, value);
             case LayerType::Route:
                 return apply_route(layer, key, value);
             case LayerType::Upsample:
@@ -227,6 +250,65 @@ namespace lithium
                 return apply_yolo(layer, key, value);
             }
             return false;
+        }
+
+        // darknet resolves a negative route entry relative to the routing layer
+        // itself, and a route may only ever look backwards
+        std::optional<int> resolve_route(int entry, std::size_t self)
+        {
+            const long long index = (entry < 0)
+                ? static_cast<long long>(self) + entry
+                : entry;
+
+            if (index < 0 || static_cast<unsigned long long>(index) >= self)
+                return std::nullopt;
+            return static_cast<int>(index);
+        }
+
+        // everything a section cannot settle while it is being read: padding needs
+        // the kernel size, and a route entry needs its own position in the network.
+        // Past this point layer.pad is a pixel count and route_layers are absolute.
+        bool finalize(ParsedCfg& cfg, const std::vector<RawPad>& raw_pads)
+        {
+            using LayerType = LayerSpec::LayerType;
+
+            for (std::size_t i = 0; i < cfg.layers.size(); ++i)
+            {
+                LayerSpec& layer = cfg.layers[i];
+                const RawPad& raw = raw_pads[i];
+
+                switch (layer.type)
+                {
+                case LayerType::Conv:
+                    if (layer.size <= 0)
+                        return false;
+                    // `pad` overrides `padding`, and a 1x1 kernel ends up unpadded
+                    layer.pad = (raw.flag != 0) ? layer.size / 2 : raw.padding.value_or(0);
+                    break;
+
+                case LayerType::Maxpool:
+                    if (layer.size <= 0)
+                        return false;
+                    // darknet pads a pooling window by size-1 unless told otherwise
+                    layer.pad = raw.padding.value_or(layer.size - 1);
+                    break;
+
+                case LayerType::Route:
+                    for (int& entry : layer.route_layers)
+                    {
+                        const auto source = resolve_route(entry, i);
+                        if (!source)
+                            return false;
+                        entry = *source;
+                    }
+                    break;
+
+                case LayerType::Upsample:
+                case LayerType::Yolo:
+                    break;
+                }
+            }
+            return true;
         }
     }
 
@@ -237,6 +319,7 @@ namespace lithium
             return std::unexpected(parse_error::file_input_error);
 
         ParsedCfg cfg{};
+        std::vector<RawPad> raw_pads;  // parallel to cfg.layers, discarded by finalize()
         bool in_net = false;
         bool in_section = false;
 
@@ -267,6 +350,7 @@ namespace lithium
                         return std::unexpected(parse_error::invalid_input);
                     in_net = false;
                     cfg.layers.emplace_back().type = *type;
+                    raw_pads.emplace_back();
                 }
                 in_section = true;
                 continue;
@@ -285,12 +369,15 @@ namespace lithium
                 return std::unexpected(parse_error::invalid_input);
 
             const bool applied = in_net ? apply_net(cfg.net, key, value)
-                                        : apply_layer(cfg.layers.back(), key, value);
+                                        : apply_layer(cfg.layers.back(), raw_pads.back(), key, value);
             if (!applied)
                 return std::unexpected(parse_error::invalid_input);
         }
 
         if (in.bad() || cfg.layers.empty())
+            return std::unexpected(parse_error::invalid_input);
+
+        if (!finalize(cfg, raw_pads))
             return std::unexpected(parse_error::invalid_input);
 
         return cfg;
