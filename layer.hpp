@@ -48,5 +48,8 @@ namespace lithium
         int letter_box{};
         int batch{};
         int subdivisions{};
+        int width{};
+        int height{};
+        int channels{};
     };
 }
