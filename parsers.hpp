@@ -19,24 +19,22 @@ namespace lithium
         std::vector<LayerSpec> layers;
     };
 
-    // one layer's slice of the .weights blob; only convolutional layers carry any,
-    // and scales/rolling_* are filled in only when the layer is batch normalised
-    struct LayerWeights
-    {
-        std::vector<float> biases;            // filters
-        std::vector<float> scales;            // filters
-        std::vector<float> rolling_mean;      // filters
-        std::vector<float> rolling_variance;  // filters
-        std::vector<float> weights;           // filters * in_channels * size * size
-    };
 
     struct ParsedWeights
     {
         int major{}, minor{}, revision{};
         std::uint64_t seen{};
-        std::vector<LayerWeights> layers;  // parallel to ParsedCfg::layers
+
+
+        std::pmr::vector<LayerWeights> layers;
+
+        explicit ParsedWeights(std::pmr::memory_resource* resource) : layers(resource) {}
     };
-    
-    std::expected<ParsedCfg, parse_error> parse_cfg(std::string_view path);  
-    std::expected<ParsedWeights, parse_error> parse_weights(std::string_view path, const ParsedCfg& cfg);
+
+    std::expected<ParsedCfg, parse_error> parse_cfg(std::string_view path);
+
+    std::expected<ParsedWeights, parse_error> parse_weights(
+        std::string_view path,
+        const ParsedCfg& cfg,
+        std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 }

@@ -28,9 +28,10 @@ namespace lithium
         }
     }
 
-    std::expected<ParsedWeights, parse_error> parse_weights(std::string_view path, const ParsedCfg& cfg)
+    std::expected<ParsedWeights, parse_error> parse_weights(
+        std::string_view path, const ParsedCfg& cfg, std::pmr::memory_resource* resource)
     {
-        if (cfg.layers.empty() || cfg.net.channels <= 0)
+        if (resource == nullptr || cfg.layers.empty() || cfg.net.channels <= 0)
             return std::unexpected(parse_error::invalid_input);
 
         std::ifstream in{std::filesystem::path(path), std::ios::binary};
@@ -43,7 +44,7 @@ namespace lithium
         if (file_size < 0 || !in)
             return std::unexpected(parse_error::file_input_error);
 
-        ParsedWeights out{};
+        ParsedWeights out{resource};
 
         std::int32_t version[3]{};
         if (!read_raw(in, version, 3))
@@ -83,7 +84,7 @@ namespace lithium
         // every read is bounded by what the file still holds, so a bogus cfg
         // cannot ask us to allocate more than the blob could possibly contain
         std::uint64_t remaining = payload_bytes / sizeof(float);
-        const auto take = [&](std::vector<float>& dst, std::uint64_t count)
+        const auto take = [&](std::pmr::vector<float>& dst, std::uint64_t count)
         {
             if (count > remaining)
                 return false;

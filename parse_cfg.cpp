@@ -1,6 +1,5 @@
 #include "parsers.hpp"
 
-#include <cctype>
 #include <charconv>
 #include <cstddef>
 #include <filesystem>
@@ -13,12 +12,16 @@ namespace lithium
 {
     namespace
     {
-        std::string_view trim(std::string_view text)
+        // what std::isspace reports in the C locale, minus the locale and minus
+        // the runtime call, so trimming survives constant evaluation
+        constexpr bool is_space(char c)
         {
-            const auto space = [](char c)
-            {
-                return std::isspace(static_cast<unsigned char>(c)) != 0;
-            };
+            return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+        }
+
+        constexpr std::string_view trim(std::string_view text)
+        {
+            const auto space = [](char c) { return is_space(c); };
 
             while (!text.empty() && space(text.front()))
                 text.remove_prefix(1);
@@ -28,7 +31,7 @@ namespace lithium
         }
 
         template <typename T>
-        std::optional<T> to_number(std::string_view text)
+        constexpr std::optional<T> to_number(std::string_view text)
         {
             T value{};
             const char* const last = text.data() + text.size();
@@ -39,7 +42,7 @@ namespace lithium
         }
 
         template <typename T>
-        bool assign(T& target, std::string_view text)
+        constexpr bool assign(T& target, std::string_view text)
         {
             const auto value = to_number<T>(text);
             if (!value)
@@ -49,7 +52,7 @@ namespace lithium
         }
 
         // "3,4,5" and "10,14,  23,27" both split into their trimmed fields
-        std::vector<std::string_view> split_list(std::string_view text)
+        constexpr std::vector<std::string_view> split_list(std::string_view text)
         {
             std::vector<std::string_view> fields;
             for (std::size_t start = 0;;)
@@ -73,7 +76,7 @@ namespace lithium
             std::optional<int> padding{};
         };
 
-        std::optional<LayerSpec::LayerType> to_layer_type(std::string_view name)
+        constexpr std::optional<LayerSpec::LayerType> to_layer_type(std::string_view name)
         {
             using LayerType = LayerSpec::LayerType;
 
@@ -90,7 +93,7 @@ namespace lithium
             return std::nullopt;
         }
 
-        bool assign_activation(Activation& target, std::string_view text)
+        constexpr bool assign_activation(Activation& target, std::string_view text)
         {
             if (text == "leaky")
                 target = Activation::Leaky;
@@ -101,7 +104,7 @@ namespace lithium
             return true;
         }
 
-        bool assign_padding(RawPad& raw, std::string_view text)
+        constexpr bool assign_padding(RawPad& raw, std::string_view text)
         {
             int padding{};
             if (!assign(padding, text))
@@ -110,7 +113,7 @@ namespace lithium
             return true;
         }
 
-        bool assign_ints(std::vector<int>& target, std::string_view text)
+        constexpr bool assign_ints(std::vector<int>& target, std::string_view text)
         {
             const auto fields = split_list(text);
             std::vector<int> values;
@@ -127,7 +130,7 @@ namespace lithium
             return true;
         }
 
-        bool assign_anchors(std::vector<std::pair<float, float>>& target, std::string_view text)
+        constexpr bool assign_anchors(std::vector<std::pair<float, float>>& target, std::string_view text)
         {
             const auto fields = split_list(text);
             if (fields.size() % 2 != 0)
@@ -149,7 +152,7 @@ namespace lithium
         }
 
         // keys NetConfig has no room for (momentum, decay, learning_rate, ...) are skipped
-        bool apply_net(NetConfig& net, std::string_view key, std::string_view value)
+        constexpr bool apply_net(NetConfig& net, std::string_view key, std::string_view value)
         {
             if (key == "letter_box")
                 return assign(net.letter_box, value);
@@ -166,7 +169,7 @@ namespace lithium
             return true;
         }
 
-        bool apply_conv(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
+        constexpr bool apply_conv(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             if (key == "batch_normalize")
             {
@@ -191,7 +194,7 @@ namespace lithium
             return false;
         }
 
-        bool apply_maxpool(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
+        constexpr bool apply_maxpool(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             if (key == "size")
                 return assign(layer.size, value);
@@ -202,7 +205,7 @@ namespace lithium
             return false;
         }
 
-        bool apply_route(LayerSpec& layer, std::string_view key, std::string_view value)
+        constexpr bool apply_route(LayerSpec& layer, std::string_view key, std::string_view value)
         {
             if (key == "layers")
                 return assign_ints(layer.route_layers, value) && !layer.route_layers.empty();
@@ -213,7 +216,7 @@ namespace lithium
             return false;
         }
 
-        bool apply_upsample(LayerSpec& layer, std::string_view key, std::string_view value)
+        constexpr bool apply_upsample(LayerSpec& layer, std::string_view key, std::string_view value)
         {
             if (key == "stride")
                 return assign(layer.stride, value);
@@ -221,7 +224,7 @@ namespace lithium
         }
 
         // keys LayerSpec has no room for (num, jitter, random, ...) are skipped
-        bool apply_yolo(LayerSpec& layer, std::string_view key, std::string_view value)
+        constexpr bool apply_yolo(LayerSpec& layer, std::string_view key, std::string_view value)
         {
             if (key == "mask")
                 return assign_ints(layer.yolo_mask, value);
@@ -232,7 +235,7 @@ namespace lithium
             return true;
         }
 
-        bool apply_layer(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
+        constexpr bool apply_layer(LayerSpec& layer, RawPad& raw, std::string_view key, std::string_view value)
         {
             using LayerType = LayerSpec::LayerType;
 
@@ -252,9 +255,23 @@ namespace lithium
             return false;
         }
 
+        // `pad` asks for "keep the output the same size", which costs size/2 pixels
+        // a side and so comes out at 0 for a 1x1 kernel; otherwise `padding` is the
+        // count itself and defaults to none
+        constexpr int conv_padding(int flag, std::optional<int> padding, int size)
+        {
+            return (flag != 0) ? size / 2 : padding.value_or(0);
+        }
+
+        // darknet pads a pooling window by size-1 unless the cfg says otherwise
+        constexpr int pool_padding(std::optional<int> padding, int size)
+        {
+            return padding.value_or(size - 1);
+        }
+
         // darknet resolves a negative route entry relative to the routing layer
         // itself, and a route may only ever look backwards
-        std::optional<int> resolve_route(int entry, std::size_t self)
+        constexpr std::optional<int> resolve_route(int entry, std::size_t self)
         {
             const long long index = (entry < 0)
                 ? static_cast<long long>(self) + entry
@@ -268,7 +285,7 @@ namespace lithium
         // everything a section cannot settle while it is being read: padding needs
         // the kernel size, and a route entry needs its own position in the network.
         // Past this point layer.pad is a pixel count and route_layers are absolute.
-        bool finalize(ParsedCfg& cfg, const std::vector<RawPad>& raw_pads)
+        constexpr bool finalize(ParsedCfg& cfg, const std::vector<RawPad>& raw_pads)
         {
             using LayerType = LayerSpec::LayerType;
 
@@ -282,15 +299,13 @@ namespace lithium
                 case LayerType::Conv:
                     if (layer.size <= 0)
                         return false;
-                    // `pad` overrides `padding`, and a 1x1 kernel ends up unpadded
-                    layer.pad = (raw.flag != 0) ? layer.size / 2 : raw.padding.value_or(0);
+                    layer.pad = conv_padding(raw.flag, raw.padding, layer.size);
                     break;
 
                 case LayerType::Maxpool:
                     if (layer.size <= 0)
                         return false;
-                    // darknet pads a pooling window by size-1 unless told otherwise
-                    layer.pad = raw.padding.value_or(layer.size - 1);
+                    layer.pad = pool_padding(raw.padding, layer.size);
                     break;
 
                 case LayerType::Route:
@@ -309,6 +324,77 @@ namespace lithium
                 }
             }
             return true;
+        }
+
+        // The rules above are pure, so the compiler can check them. Anchors are the
+        // one thing that cannot be constant-evaluated: std::from_chars is constexpr
+        // for integers but not for floats.
+        namespace checks
+        {
+            static_assert(trim("  416  ") == "416");
+            static_assert(trim("\t-1, 8\r\n") == "-1, 8");
+            static_assert(trim("   ").empty());
+
+            static_assert(to_number<int>("416") == 416);
+            static_assert(to_number<int>("-4") == -4);
+            static_assert(!to_number<int>("4x"));
+            static_assert(!to_number<int>(""));
+
+            static_assert(to_layer_type("convolutional") == LayerSpec::LayerType::Conv);
+            static_assert(to_layer_type("maxpool") == LayerSpec::LayerType::Maxpool);
+            static_assert(!to_layer_type("shortcut"));
+
+            constexpr bool splits_the_way_cfgs_are_written()
+            {
+                return split_list("3,4,5") == std::vector<std::string_view>{"3", "4", "5"}
+                    && split_list("-1, 8") == std::vector<std::string_view>{"-1", "8"}
+                    && split_list("10,14,  23,27") == std::vector<std::string_view>{"10", "14", "23", "27"};
+            }
+            static_assert(splits_the_way_cfgs_are_written());
+
+            // `pad` is a flag: a 1x1 kernel with pad=1 is *unpadded*
+            static_assert(conv_padding(1, std::nullopt, 3) == 1);
+            static_assert(conv_padding(1, std::nullopt, 1) == 0);
+            static_assert(conv_padding(0, std::nullopt, 3) == 0);
+            static_assert(conv_padding(0, 2, 3) == 2);
+            static_assert(conv_padding(1, 7, 3) == 1);  // `pad` overrides `padding`
+
+            static_assert(pool_padding(std::nullopt, 2) == 1);
+            static_assert(pool_padding(std::nullopt, 3) == 2);
+            static_assert(pool_padding(0, 2) == 0);
+
+            // yolov3-tiny's two routes: `-4` at layer 17, then `-1, 8` at layer 20
+            static_assert(resolve_route(-4, 17) == 13);
+            static_assert(resolve_route(-1, 20) == 19);
+            static_assert(resolve_route(8, 20) == 8);
+            static_assert(!resolve_route(-1, 0));   // nothing before the first layer
+            static_assert(!resolve_route(-5, 1));   // reaches back past the start
+            static_assert(!resolve_route(1, 1));    // forward
+            static_assert(!resolve_route(0, 0));    // itself
+
+            // and the whole finalize pass over a hand-built stand-in for layers 12-17
+            constexpr bool finalizes_a_network()
+            {
+                ParsedCfg cfg{};
+                using LayerType = LayerSpec::LayerType;
+                cfg.layers.resize(5);
+                cfg.layers[0] = {.type = LayerType::Conv, .size = 3};
+                cfg.layers[1] = {.type = LayerType::Conv, .size = 1};
+                cfg.layers[2] = {.type = LayerType::Maxpool, .size = 2};
+                cfg.layers[3] = {.type = LayerType::Upsample};
+                cfg.layers[4] = {.type = LayerType::Route, .route_layers = {-4, 1}};
+
+                std::vector<RawPad> raw(5);
+                raw[0].flag = 1;  // pad=1 size=3 -> 1
+                raw[1].flag = 1;  // pad=1 size=1 -> 0
+
+                return finalize(cfg, raw)
+                    && cfg.layers[0].pad == 1
+                    && cfg.layers[1].pad == 0
+                    && cfg.layers[2].pad == 1
+                    && cfg.layers[4].route_layers == std::vector<int>{0, 1};
+            }
+            static_assert(finalizes_a_network());
         }
     }
 
