@@ -26,6 +26,26 @@ static std::vector<float> im2col(const lithium::Tensor& input, const lithium::Te
     return arr;
 }
 
+static void blas(
+                const float* in, float* out, const float* weights, 
+                int filters, int patches, int patch_len
+                )
+{
+    for (int f{0}; f < filters; ++f)
+    {
+        for (int p{0}; p < patches; ++p)
+        {
+            float sum{0.0f};
+            for (int i{0}; i < patch_len; ++i)
+            {
+                sum += weights[f * patch_len + i] * in[p * patch_len + i];
+            }
+            out[f * patches + p] = sum;
+        }
+    }
+    return;
+}
+
 namespace lithium 
 {
     struct Backend
