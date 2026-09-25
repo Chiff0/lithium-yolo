@@ -26,7 +26,7 @@ static std::vector<float> im2col(const lithium::Tensor& input, const lithium::Te
     return arr;
 }
 
-static void blas(
+static void gemm(
                 const float* in, float* out, const float* weights, 
                 int filters, int patches, int patch_len
                 )
