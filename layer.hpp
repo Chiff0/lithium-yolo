@@ -63,8 +63,7 @@ namespace lithium
             , rolling_mean(alloc)
             , rolling_variance(alloc)
             , weights(alloc)
-        {
-        }
+        {}
 
         LayerWeights(const LayerWeights& other, allocator_type alloc = {})
             : biases(other.biases, alloc)
@@ -72,8 +71,7 @@ namespace lithium
             , rolling_mean(other.rolling_mean, alloc)
             , rolling_variance(other.rolling_variance, alloc)
             , weights(other.weights, alloc)
-        {
-        }
+        {}
 
         LayerWeights(LayerWeights&&) = default;
         LayerWeights(LayerWeights&& other, allocator_type alloc)
@@ -82,8 +80,7 @@ namespace lithium
             , rolling_mean(std::move(other.rolling_mean), alloc)
             , rolling_variance(std::move(other.rolling_variance), alloc)
             , weights(std::move(other.weights), alloc)
-        {
-        }
+        {}
 
         LayerWeights& operator=(const LayerWeights&) = default;
         LayerWeights& operator=(LayerWeights&&) = default;
@@ -102,6 +99,5 @@ namespace lithium
     {
         LayerSpec spec{};
         LayerWeights weights{};
-        Tensor out{};  
     };
 }
