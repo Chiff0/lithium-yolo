@@ -1,4 +1,5 @@
 #include "backend.hpp"
+#include <cfloat>
 #include <cmath>
 
 
@@ -36,9 +37,9 @@ static std::vector<float> im2col(
 }
 
 static void gemm(
-                const float* in, float* out, const float* weights, 
-                int filters, int patch_len, int patches
-                )
+    const float* in, float* out, const float* weights, 
+    int filters, int patch_len, int patches
+)
 {
     for (int f{0}; f < filters; ++f)
     {
@@ -56,9 +57,9 @@ static void gemm(
 }
 
 static void batch_normalize(float* in, 
-                            const lithium::LayerWeights& weights,
-                            int len, int c // has to be spec.filters, not number of inpuit channels!!!
-                           )
+    const lithium::LayerWeights& weights,
+    int len, int c // has to be spec.filters, not number of inpuit channels!!!
+)
 {
     std::size_t size_per_channel{static_cast<std::size_t>(len / c)};
     for (auto i{0}; i < c; ++i)
@@ -72,7 +73,7 @@ static void batch_normalize(float* in,
             in[j] = (in[j] - mean) / dev; //normalize
             in[j] *= scale; // scale
             in[j] += bias; // add bias
-
+            
         }
     }
 }
@@ -81,9 +82,9 @@ static void batch_normalize(float* in,
 
 
 static void add_bias(float* in, 
-                     const lithium::LayerWeights& weights,
-                     int len, int c
-                    )
+    const lithium::LayerWeights& weights,
+    int len, int c
+)
 {
     std::size_t size_per_channel{static_cast<std::size_t>(len / c)};
     for (auto i{0}; i < c; ++i)
@@ -115,13 +116,46 @@ static void apply_activation(const lithium::Tensor in, lithium::Activation activ
     switch(activation)
     {
         case lithium::Activation::Leaky:
-            for (std::size_t i{0}; i < in.count(); ++i)
-            {
-                in.data[i] = leaky(in.data[i]);
-            }
-            break;
+        for (std::size_t i{0}; i < in.count(); ++i)
+        {
+            in.data[i] = leaky(in.data[i]);
+        }
+        break;
         case lithium::Activation::Linear:
-            break;
+        break;
+    }
+}
+
+static void maxpool(
+                   const lithium::Tensor& input, float* out, 
+                   int pad, int stride, int h, int w
+                   )
+{
+    int nx{(input.w + pad - w) / stride + 1},
+        ny{(input.h + pad - h) / stride + 1};
+
+    std::size_t counter{0};
+    for (int i{0}; i < input.c; ++i)
+    {
+        for (int j{0}; j < ny; ++j)
+        {
+            for (int k{0}; k < nx; ++k)
+            {
+                float hi{-FLT_MAX};
+                for (int pos{0}; pos < h * w; ++pos)
+                {
+                    int x{pos % w + k * stride - pad / 2},
+                        y{pos / w + j * stride - pad / 2};
+
+                    float curr{(x < 0 || y < 0 || x >= input.w || y >= input.h)
+                        ? -FLT_MAX
+                        : input.data[input.index(i, x, y)]};
+                    if (curr > hi)
+                        hi = curr;
+                }
+                out[counter++] = hi;
+            }
+        }
     }
 }
 
@@ -149,6 +183,13 @@ namespace lithium
             }
             apply_activation(out, layer.spec.activation);
         }
+
+        void maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out) override
+        {
+            ::maxpool(in, out.data, layer.spec.pad, layer.spec.stride, 
+                layer.spec.size, layer.spec.size);
+        }
+
     };
 }
 
