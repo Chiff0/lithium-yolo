@@ -5,7 +5,7 @@
 
 static std::vector<float> im2col(
                                 const lithium::Tensor& input, 
-                                int pad, int stride, int w, int h
+                                int pad, int stride, int h, int w
                                 )
 {
     std::vector<float> arr{};
@@ -37,7 +37,7 @@ static std::vector<float> im2col(
 
 static void gemm(
                 const float* in, float* out, const float* weights, 
-                int filters, int patches, int patch_len
+                int filters, int patch_len, int patches
                 )
 {
     for (int f{0}; f < filters; ++f)
@@ -57,7 +57,7 @@ static void gemm(
 
 static void batch_normalize(float* in, 
                             const lithium::LayerWeights& weights,
-                            int len, int c // has to be spec.filters, not number of inpuit channels
+                            int len, int c // has to be spec.filters, not number of inpuit channels!!!
                            )
 {
     std::size_t size_per_channel{static_cast<std::size_t>(len / c)};
@@ -77,14 +77,77 @@ static void batch_normalize(float* in,
     }
 }
 
+
+
+
+static void add_bias(float* in, 
+                     const lithium::LayerWeights& weights,
+                     int len, int c
+                    )
+{
+    std::size_t size_per_channel{static_cast<std::size_t>(len / c)};
+    for (auto i{0}; i < c; ++i)
+    {
+        auto offset{size_per_channel * i};
+        auto bias{weights.biases[i]};
+        for (auto j{offset}; j < offset + size_per_channel; ++j)
+        {
+            in[j] += bias;
+        }
+    }
+}
+
+
+
+
+static float leaky(float x)
+{
+    return (x > 0) ? x : x * 0.1f; 
+}
+
+[[maybe_unused]] static float linear(float x)
+{
+    return x;
+}
+
+static void apply_activation(const lithium::Tensor in, lithium::Activation activation)
+{
+    switch(activation)
+    {
+        case lithium::Activation::Leaky:
+            for (std::size_t i{0}; i < in.count(); ++i)
+            {
+                in.data[i] = leaky(in.data[i]);
+            }
+            break;
+        case lithium::Activation::Linear:
+            break;
+    }
+}
+
 namespace lithium 
 {
     struct CPUBackend : Backend
     {
-        void conv(const NetworkLayer&, const Tensor& in, Tensor& out) override
+        void conv(const NetworkLayer& layer, const Tensor& in, Tensor& out) override
         {
-            
-
+            auto cols{im2col(
+                in, 
+                layer.spec.pad, layer.spec.stride, 
+                layer.spec.size, layer.spec.size
+            )};
+            gemm(cols.data(), out.data, layer.weights.weights.data(), 
+                layer.spec.filters, in.c * layer.spec.size * layer.spec.size,
+                out.h * out.w);
+            if (layer.spec.batch_norm)
+            {
+                batch_normalize(out.data, layer.weights, out.c * out.h * out.w, out.c);
+            }
+            else
+            {
+                add_bias(out.data, layer.weights, out.c * out.h * out.w, out.c);
+            }
+            apply_activation(out, layer.spec.activation);
         }
     };
 }
