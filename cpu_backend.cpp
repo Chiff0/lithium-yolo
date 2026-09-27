@@ -160,7 +160,7 @@ static void maxpool(
 
 static void upsample(
                     const lithium::Tensor& in, lithium::Tensor& out,
-                    int stride, int size_x=2, int size_y=2 //yolov3 tiny uses 2x2 upsample
+                    int stride
                     )
 {
     for (int i{0}; i < out.c; ++i)
@@ -169,9 +169,22 @@ static void upsample(
         {
             for (int k{0}; k < out.w; ++k)
             {
-                out.data[out.index(i, k, j)] = in.data[in.index(i, k / size_x, j / size_y)];
+                out.data[out.index(i, k, j)] = in.data[in.index(i, k / stride, j / stride)];
             }
         }
+    }
+
+    return;
+}
+
+static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
+{
+    int offset{0};
+    for (auto tensor : ins)
+    {
+        int len{static_cast<int>(tensor.count())};
+        std::copy(tensor.data, tensor.data + len, out.data + offset);
+        offset += len;
     }
 
     return;
@@ -209,6 +222,10 @@ namespace lithium
         void upsample(const Tensor& in, Tensor& out, int stride) override
         {
             ::upsample(in, out, stride);
+        }
+        virtual void concat(const std::vector<Tensor>& ins, Tensor& out) override 
+        {
+            ::concat(ins, out);
         }
 
 
