@@ -190,6 +190,7 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
     return;
 }
 
+
 namespace lithium 
 {
     struct CPUBackend : Backend
@@ -223,9 +224,13 @@ namespace lithium
         {
             ::upsample(in, out, stride);
         }
-        virtual void concat(const std::vector<Tensor>& ins, Tensor& out) override 
+        void concat(const std::vector<Tensor>& ins, Tensor& out) override 
         {
             ::concat(ins, out);
+        }
+        void download(const Tensor& device, float* host) override
+        {
+            std::copy(device.data, device.data + device.count(), host);
         }
 
 
