@@ -180,7 +180,7 @@ static void upsample(
 static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
 {
     int offset{0};
-    for (auto tensor : ins)
+    for (auto& tensor : ins)
     {
         int len{static_cast<int>(tensor.count())};
         std::copy(tensor.data, tensor.data + len, out.data + offset);
