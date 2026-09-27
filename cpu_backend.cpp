@@ -160,7 +160,7 @@ static void maxpool(
 
 static void upsample(
                     const lithium::Tensor& in, lithium::Tensor& out,
-                    int stride, int size_x, int size_y
+                    int stride, int size_x=2, int size_y=2 //yolov3 tiny uses 2x2 upsample
                     )
 {
     for (int i{0}; i < out.c; ++i)
@@ -206,6 +206,11 @@ namespace lithium
             ::maxpool(in, out, layer.spec.pad, layer.spec.stride, 
                 layer.spec.size, layer.spec.size);
         }
+        void upsample(const Tensor& in, Tensor& out, int stride) override
+        {
+            ::upsample(in, out, stride);
+        }
+
 
     };
 }
