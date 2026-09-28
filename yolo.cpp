@@ -44,9 +44,68 @@ static lithium::Decoded create(
     return ret;
     
 } 
+static float overlap(float x1, float w1, float x2, float w2)
+{
+    float left  = std::max(x1 - w1/2,  x2 - w2/2);
+    float right = std::min(x1 + w1/2,  x2 + w2/2);
+    return right - left;
+}
+
+
+static float IOU(const lithium::Decoded& a, const lithium::Decoded& b)
+{
+    float ox{overlap(a.x, a.w, b.x, b.w)}, oy{overlap(a.y, a.h, b.y, b.h)};
+    if (ox <= 0.0f || oy <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    float intersection{ox * oy};
+    float u{a.h * a.w + b.h * b.w - intersection};
+    return intersection / u;
+}
+
 
 namespace lithium
 {
+    void nms(std::vector<Decoded>& predictions, float iou_threshold)
+    {
+        if (predictions.empty())
+        {
+            return;
+        }
+
+        for (std::size_t i{0}; i < predictions[0].probs.size(); ++i)
+        {
+            std::sort(predictions.begin(), predictions.end(),
+                [i](const Decoded& a, const Decoded& b)
+                {
+                    return a.probs[i] > b.probs[i];
+                });
+
+            for (std::size_t j{0}; j < predictions.size(); ++j)
+            {
+                if (predictions[j].probs[i] == 0.0f)
+                {
+                    continue;
+                }
+
+                for (std::size_t k{j + 1}; k < predictions.size(); ++k)
+                {
+                    if (predictions[k].probs[i] == 0.0f)
+                    {
+                        continue;
+                    }
+
+                    if (IOU(predictions[j], predictions[k]) > iou_threshold)
+                    {
+                        predictions[k].probs[i] = 0.0f;
+                    }
+                }
+            }
+        }
+    }
+
     void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         std::copy(in.data, in.data + in.count(), out.data);
