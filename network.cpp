@@ -50,12 +50,12 @@ namespace lithium
             return std::unexpected(network_error::size_not_equal);
         }
 
-        Network network{};
-        network.resource = weights.layers.get_allocator().resource();
+        Network network{{}, weights.layers.get_allocator().resource(), {}, {}, std::pmr::vector<float>{weights.layers.get_allocator().resource()}};
         network.net = cfg.net; 
         network.layers.reserve(cfg.layers.size());
         network.outputs.reserve(cfg.layers.size());
         int prev_h{cfg.net.height}, prev_w{cfg.net.width}, prev_c{cfg.net.channels};
+        int sum{0};
         for (std::size_t i{0}; i < cfg.layers.size(); ++i)
         {
             const auto& layer{cfg.layers[i]};
@@ -107,14 +107,36 @@ namespace lithium
                 }
             }
 
+
+            sum += tensor.count();
             network.outputs.push_back(tensor);
             prev_h = tensor.h;
             prev_w = tensor.w;
             prev_c = tensor.c;
 
         }
+        network.storage.resize(sum);
+        std::size_t offset{0};
+
+        for (Tensor& tensor : network.outputs)
+        {
+            tensor.data = network.storage.data() + offset;
+            offset += tensor.count();
+        }
+
+        if (offset != network.storage.size())
+        {
+            return std::unexpected(network_error::buffer_overlap);
+        }
 
 
         return network;
     }
+
+
+
+
+
+
+
 }

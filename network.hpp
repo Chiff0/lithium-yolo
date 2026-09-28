@@ -14,6 +14,7 @@ namespace lithium
     enum class network_error
     {
         size_not_equal,
+        buffer_overlap,
     };
 
     struct Network
