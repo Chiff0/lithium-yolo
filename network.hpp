@@ -3,7 +3,6 @@
 #include "backend.hpp"
 #include "parsers.hpp"
 #include "layer.hpp"
-#include "yolo.hpp"
 #include <expected>
 #include <memory_resource>
 

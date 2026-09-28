@@ -1,4 +1,5 @@
 #include "network.hpp"
+#include "yolo.hpp"
 
 
 static std::pair<int, int> conv_dim(int h, int w, int pad, int size, int stride)

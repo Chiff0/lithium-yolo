@@ -2,10 +2,24 @@
 
 #include "network.hpp"
 
+#include <vector>
+
 
 
 
 namespace lithium
 {
-    void yolo(NetworkLayer layer, const Tensor& in, Tensor& out);
+    struct Decoded
+    {
+        float x{};
+        float y{};
+        float w{};
+        float h{};
+        float objectness{};
+        std::vector<float> probs{};
+    };
+
+    void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out);
+    std::vector<Decoded> decode(const Network& network, float threshold = 0.25f);
+
 }
