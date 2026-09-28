@@ -7,5 +7,5 @@
 
 namespace lithium
 {
-    void yolo(NetworkLayer layer, Tensor& in, Tensor& out);
+    void yolo(NetworkLayer layer, const Tensor& in, Tensor& out);
 }

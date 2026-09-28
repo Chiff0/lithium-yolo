@@ -166,6 +166,11 @@ namespace lithium
                     backend.concat(tensors, network.outputs[i]);
                     break;
                 }
+                case LayerSpec::LayerType::Yolo:
+                {
+                    yolo(layer, src, network.outputs[i]);
+                    break;
+                }
             }
         }
     }

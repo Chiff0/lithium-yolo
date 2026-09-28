@@ -17,7 +17,7 @@ static void apply_sigmoid(float* arr, std::size_t start, int len)
 
 namespace lithium
 {
-    void yolo(NetworkLayer layer, Tensor& in, Tensor& out)
+    void yolo(NetworkLayer layer, const Tensor& in, Tensor& out)
     {
         std::copy(in.data, in.data + in.count(), out.data);
         int hw{out.h * out.w};
