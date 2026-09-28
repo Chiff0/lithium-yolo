@@ -13,7 +13,6 @@ static std::pair<int, int> maxpool_dim(int h, int w, int pad, int size, int stri
     int new_h = (h + pad - size) / stride + 1;
     int new_w = (w + pad - size) / stride + 1;
     return {new_h, new_w};
-
 }
 
 static std::pair<int, int> route_dim(const std::vector<lithium::Tensor>& outputs,
@@ -133,7 +132,43 @@ namespace lithium
         return network;
     }
 
+    void forward(Network& network, Backend& backend, const Tensor& input)
+    {
+        for (std::size_t i{0}; i < network.layers.size(); ++i)
+        {
+            const auto& layer{network.layers[i]};
+            const Tensor& src{(i == 0) ? input : network.outputs[i - 1]};
 
+            switch(layer.spec.type)
+            {
+                case LayerSpec::LayerType::Conv:
+                {
+                    backend.conv(layer, src, network.outputs[i]);
+                    break;
+                }
+                case LayerSpec::LayerType::Maxpool:
+                {
+                    backend.maxpool(layer, src, network.outputs[i]);
+                    break;
+                }
+                case LayerSpec::LayerType::Upsample:
+                {
+                    backend.upsample(src, network.outputs[i], layer.spec.stride);
+                    break;
+                }
+                case LayerSpec::LayerType::Route:
+                {
+                    std::vector<Tensor> tensors{};
+                    for (std::size_t source : layer.spec.route_layers)
+                    {
+                        tensors.push_back(network.outputs[source]);
+                    }
+                    backend.concat(tensors, network.outputs[i]);
+                    break;
+                }
+            }
+        }
+    }
 
 
 
