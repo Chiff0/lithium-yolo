@@ -1,4 +1,5 @@
 #include "yolo.hpp"
+#include "letterbox.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -160,29 +161,17 @@ namespace lithium
     void revert_sizes(std::vector<Decoded>& predictions, int image_w, int image_h,
         int net_w, int net_h)
     {
-        int fit_w{image_w}, fit_h{image_h};
-        if (static_cast<float>(net_w) / image_w < static_cast<float>(net_h) / image_h)
-        {
-            fit_w = net_w;
-            fit_h = (image_h * net_w) / image_w;
-        }
-        else
-        {
-            fit_h = net_h;
-            fit_w = (image_w * net_h) / image_h;
-        }
-
-        float pad_w{(net_w - fit_w) / 2.0f}, pad_h{(net_h - fit_h) / 2.0f};
+        Letterbox box{letterbox_fit(image_w, image_h, net_w, net_h)};
 
         for (auto& prediction : predictions)
         {
-            float p_x{(prediction.x * net_w - pad_w) / fit_w},
-                  p_y{(prediction.y * net_h - pad_h) / fit_h};
+            float p_x{(prediction.x * net_w - box.pad_w) / box.fit_w},
+                  p_y{(prediction.y * net_h - box.pad_h) / box.fit_h};
 
             prediction.x = p_x * image_w;
             prediction.y = p_y * image_h;
-            prediction.w = prediction.w * net_w / fit_w * image_w;
-            prediction.h = prediction.h * net_h / fit_h * image_h;
+            prediction.w = prediction.w * net_w / box.fit_w * image_w;
+            prediction.h = prediction.h * net_h / box.fit_h * image_h;
         }
     }
 }
