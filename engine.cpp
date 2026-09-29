@@ -2,7 +2,7 @@
 #include "preprocess.hpp"
 #include "yolo.hpp"
 #include "engine.hpp"
-#include "cpu_backend.cpp"
+#include "cpu_backend.hpp"
 
 #include <iostream>
 

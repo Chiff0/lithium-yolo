@@ -1,4 +1,5 @@
-#include "backend.hpp"
+#include "cpu_backend.hpp"
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 
@@ -193,47 +194,44 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
 
 namespace lithium 
 {
-    struct CPUBackend : Backend
+    void CPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        void conv(const NetworkLayer& layer, const Tensor& in, Tensor& out) override
+        auto cols{im2col(
+            in, out, 
+            layer.spec.pad, layer.spec.stride, 
+            layer.spec.size, layer.spec.size
+        )};
+        gemm(cols.data(), out, layer.weights.weights.data(), 
+            in.c * layer.spec.size * layer.spec.size);
+        if (layer.spec.batch_norm)
         {
-            auto cols{im2col(
-                in, out, 
-                layer.spec.pad, layer.spec.stride, 
-                layer.spec.size, layer.spec.size
-            )};
-            gemm(cols.data(), out, layer.weights.weights.data(), 
-                in.c * layer.spec.size * layer.spec.size);
-            if (layer.spec.batch_norm)
-            {
-                batch_normalize(out, layer.weights);
-            }
-            else
-            {
-                add_bias(out, layer.weights);
-            }
-            apply_activation(out, layer.spec.activation);
+            batch_normalize(out, layer.weights);
         }
+        else
+        {
+            add_bias(out, layer.weights);
+        }
+        apply_activation(out, layer.spec.activation);
+    }
 
-        void maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out) override
-        {
-            ::maxpool(in, out, layer.spec.pad, layer.spec.stride, 
-                layer.spec.size, layer.spec.size);
-        }
-        void upsample(const Tensor& in, Tensor& out, int stride) override
-        {
-            ::upsample(in, out, stride);
-        }
-        void concat(const std::vector<Tensor>& ins, Tensor& out) override 
-        {
-            ::concat(ins, out);
-        }
-        void download(const Tensor& device, float* host) override
-        {
-            std::copy(device.data, device.data + device.count(), host);
-        }
+    void CPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
+    {
+        ::maxpool(in, out, layer.spec.pad, layer.spec.stride, 
+            layer.spec.size, layer.spec.size);
+    }
 
+    void CPUBackend::upsample(const Tensor& in, Tensor& out, int stride)
+    {
+        ::upsample(in, out, stride);
+    }
 
-    };
+    void CPUBackend::concat(const std::vector<Tensor>& ins, Tensor& out)
+    {
+        ::concat(ins, out);
+    }
+
+    void CPUBackend::download(const Tensor& device, float* host)
+    {
+        std::copy(device.data, device.data + device.count(), host);
+    }
 }
-
