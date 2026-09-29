@@ -69,7 +69,7 @@ static float IOU(const lithium::Decoded& a, const lithium::Decoded& b)
 
 namespace lithium
 {
-    void nms(std::vector<Decoded>& predictions, float iou_threshold=0.45f)
+    void nms(std::vector<Decoded>& predictions, float iou_threshold)
     {
         if (predictions.empty())
         {

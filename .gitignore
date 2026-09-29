@@ -1,0 +1,22 @@
+# build output
+lithium
+*.o
+*.a
+*.so
+build/
+compile_commands.json
+.cache/
+
+# third-party header, fetched rather than vendored:
+#   curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+stb_image.h
+
+# produced by running the detector
+*.ppm
+detections.png
+
+# editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store

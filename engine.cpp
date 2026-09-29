@@ -1,20 +1,13 @@
 #include "network.hpp"
 #include "preprocess.hpp"
 #include "yolo.hpp"
+#include "engine.hpp"
 #include "cpu_backend.cpp"
 
 #include <iostream>
 
 namespace lithium
 {
-    enum class error
-    {
-        cfg_error,
-        weights_error,
-        network_error,
-        preprocessing_error,
-    };
-
     std::expected<std::vector<Decoded>, error> run_inference(int argc, char** argv)
     {
         
