@@ -156,4 +156,33 @@ namespace lithium
         }
         return vec;
     }
+
+    void revert_sizes(std::vector<Decoded>& predictions, int image_w, int image_h,
+        int net_w, int net_h)
+    {
+        int fit_w{image_w}, fit_h{image_h};
+        if (static_cast<float>(net_w) / image_w < static_cast<float>(net_h) / image_h)
+        {
+            fit_w = net_w;
+            fit_h = (image_h * net_w) / image_w;
+        }
+        else
+        {
+            fit_h = net_h;
+            fit_w = (image_w * net_h) / image_h;
+        }
+
+        float pad_w{(net_w - fit_w) / 2.0f}, pad_h{(net_h - fit_h) / 2.0f};
+
+        for (auto& prediction : predictions)
+        {
+            float p_x{(prediction.x * net_w - pad_w) / fit_w},
+                  p_y{(prediction.y * net_h - pad_h) / fit_h};
+
+            prediction.x = p_x * image_w;
+            prediction.y = p_y * image_h;
+            prediction.w = prediction.w * net_w / fit_w * image_w;
+            prediction.h = prediction.h * net_h / fit_h * image_h;
+        }
+    }
 }
