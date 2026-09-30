@@ -24,17 +24,20 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 add_library(lithium_core STATIC
-    parse_cfg.cpp
-    parse_weights.cpp
-    network.cpp
-    yolo.cpp
-    letterbox.cpp
-    preprocess.cpp
-    cpu_backend.cpp
-    engine.cpp
+    src/parse_cfg.cpp
+    src/parse_weights.cpp
+    src/network.cpp
+    src/yolo.cpp
+    src/letterbox.cpp
+    src/preprocess.cpp
+    src/cpu_backend.cpp
+    src/engine.cpp
 )
 
-target_include_directories(lithium_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(lithium_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
 target_compile_options(lithium_core PRIVATE -Wall -Wextra)
 
 if(LITHIUM_NATIVE)
@@ -55,7 +58,7 @@ if(LITHIUM_CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     # cuda_backend.cu does not exist yet; this is the wiring it will need.
-    target_sources(lithium_core PRIVATE cuda_backend.cu)
+    target_sources(lithium_core PRIVATE src/cuda_backend.cu)
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)
 
@@ -63,10 +66,10 @@ if(LITHIUM_CUDA)
     set_target_properties(lithium_core PROPERTIES CUDA_ARCHITECTURES 87)
 endif()
 
-add_executable(lithium main.cpp draw.cpp)
+add_executable(lithium app/main.cpp app/draw.cpp)
 target_link_libraries(lithium PRIVATE lithium_core)
 
-add_executable(test_reference test_reference.cpp)
+add_executable(test_reference test/test_reference.cpp)
 target_link_libraries(test_reference PRIVATE lithium_core)
 
 enable_testing()

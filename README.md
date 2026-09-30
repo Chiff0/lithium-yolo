@@ -1,7 +1,6 @@
 # Lithium
 
-`stb_image.h` is not vendored. Fetch it into the repository root before building:
 
 ```bash
-curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+curl -o third_party/stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
 ```

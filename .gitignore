@@ -8,8 +8,8 @@ compile_commands.json
 .cache/
 
 # third-party header, fetched rather than vendored:
-#   curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
-stb_image.h
+#   curl -o third_party/stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+third_party/stb_image.h
 
 # produced by running the detector
 *.ppm
