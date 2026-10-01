@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -101,8 +100,10 @@ int main(int argc, char** argv)
     for (std::size_t i{0}; i < network->outputs.size(); ++i)
     {
         const Tensor& out = network->outputs[i];
-        const auto name = std::format("{}/layer_{:02}_c{}_h{}_w{}.bin",
-                                      dumps, i, out.c, out.h, out.w);
+        char name_buf[512];
+        std::snprintf(name_buf, sizeof(name_buf), "%s/layer_%02zu_c%d_h%d_w%d.bin",
+                      dumps.c_str(), i, out.c, out.h, out.w);
+        const std::string name{name_buf};
 
         if (!std::filesystem::exists(name))
         {
