@@ -2,16 +2,11 @@ cmake_minimum_required(VERSION 3.22)
 
 project(lithium LANGUAGES CXX)
 
-# The CUDA backend is off by default so the project configures and builds on a
-# machine with no CUDA toolchain. Turn it on for the Jetson.
 option(LITHIUM_CUDA       "Build the CUDA backend"                              OFF)
 option(LITHIUM_NATIVE     "Tune for the building machine (-march=native)"       OFF)
 option(LITHIUM_ASAN       "Address + UB sanitizers, for the test build"         OFF)
 
-# -ffast-math is what currently buys the ~5x on the CPU backend, but it also
-# assumes no NaN/Inf and flushes denormals, so it is a numerics decision and not
-# just an optimisation. Off by default: it has to be asked for explicitly, and
-# any measurement taken with it on has to say so.
+
 option(LITHIUM_FAST_MATH  "Relax IEEE float semantics (-ffast-math)"            OFF)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -54,16 +49,23 @@ if(LITHIUM_ASAN)
 endif()
 
 if(LITHIUM_CUDA)
-    enable_language(CUDA)
+
     find_package(CUDAToolkit REQUIRED)
 
-    # cuda_backend.cu does not exist yet; this is the wiring it will need.
-    target_sources(lithium_core PRIVATE src/cuda_backend.cu)
+    target_sources(lithium_core PRIVATE src/allocator.cpp)
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)
 
-    # 87 is Orin. Leave it unset to let CMake probe the building machine instead.
-    set_target_properties(lithium_core PROPERTIES CUDA_ARCHITECTURES 87)
+
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_backend.cu)
+        enable_language(CUDA)
+        target_sources(lithium_core PRIVATE src/cuda_backend.cu)
+
+        set_target_properties(lithium_core PROPERTIES CUDA_ARCHITECTURES 87)
+    else()
+        message(STATUS "LITHIUM_CUDA: src/cuda_backend.cu not present yet "
+                       "- building the CUDA allocator only")
+    endif()
 endif()
 
 add_executable(lithium app/main.cpp app/draw.cpp)
