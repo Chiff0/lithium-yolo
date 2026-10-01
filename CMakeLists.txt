@@ -72,5 +72,8 @@ target_link_libraries(lithium PRIVATE lithium_core)
 add_executable(test_reference test/test_reference.cpp)
 target_link_libraries(test_reference PRIVATE lithium_core)
 
+add_executable(bench test/bench.cpp)
+target_link_libraries(bench PRIVATE lithium_core)
+
 enable_testing()
 add_test(NAME reference COMMAND test_reference ${CMAKE_CURRENT_SOURCE_DIR}/reference)
