@@ -6,6 +6,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <version>
 
 
 namespace lithium
@@ -329,6 +330,11 @@ namespace lithium
         // The rules above are pure, so the compiler can check them. Anchors are the
         // one thing that cannot be constant-evaluated: std::from_chars is constexpr
         // for integers but not for floats.
+        //
+        // libstdc++ only made the integer overloads constexpr in version 13, so on
+        // an older standard library the checks compile out instead of failing the
+        // build. JetPack 6 ships libstdc++ 12.
+#if defined(__cpp_lib_constexpr_charconv) && __cpp_lib_constexpr_charconv >= 202207L
         namespace checks
         {
             static_assert(trim("  416  ") == "416");
@@ -396,6 +402,7 @@ namespace lithium
             }
             static_assert(finalizes_a_network());
         }
+#endif
     }
 
     std::expected<ParsedCfg, parse_error> parse_cfg(std::string_view path)
