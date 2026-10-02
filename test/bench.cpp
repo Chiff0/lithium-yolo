@@ -113,6 +113,7 @@ int main(int argc, char** argv)
     {
         forward(*network, *backend, input);
     }
+    backend->sync();
 
     std::vector<double> ms{};
     ms.reserve(static_cast<std::size_t>(iterations));
@@ -121,6 +122,7 @@ int main(int argc, char** argv)
     {
         const auto t0{std::chrono::steady_clock::now()};
         forward(*network, *backend, input);
+        backend->sync();
         const auto t1{std::chrono::steady_clock::now()};
         ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
     }

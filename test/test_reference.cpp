@@ -137,6 +137,7 @@ int main(int argc, char** argv)
     }
 #endif
     forward(*network, *backend, input);
+    backend->sync();
 
     std::printf("%s   [%s backend]\n\n", dumps.c_str(), which.c_str());
     std::puts("layer  type          shape       max|diff|      scale   diff/scale");
