@@ -1,6 +1,11 @@
 #include "cpu_backend.hpp"
 #include "network.hpp"
 
+#ifdef LITHIUM_CUDA
+#include "allocator.hpp"
+#include "gpu_backend.hpp"
+#endif
+
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -53,7 +58,34 @@ int main(int argc, char** argv)
 
     const std::string root{(argc > 1) ? argv[1] : "reference"};
     const std::string variant{(argc > 2) ? argv[2] : "dog-letterbox"};
+    const std::string which{(argc > 3) ? argv[3] : "cpu"};
     const std::string dumps{root + "/" + variant};
+
+    if (which != "cpu" && which != "gpu")
+    {
+        std::printf("usage: test_reference [reference_root] [variant] [cpu|gpu]\n");
+        return 2;
+    }
+#ifndef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        std::puts("built without LITHIUM_CUDA: the gpu backend is not in this binary");
+        return 2;
+    }
+#endif
+
+    // Declared before the network so it is destroyed after it: storage calls
+    // do_deallocate through this pointer on the way out.
+#ifdef LITHIUM_CUDA
+    cuda_resource managed{};
+#endif
+    std::pmr::memory_resource* resource{std::pmr::get_default_resource()};
+#ifdef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        resource = &managed;
+    }
+#endif
 
     const auto cfg = parse_cfg(root + "/yolov3-tiny-letterbox.cfg");
     if (!cfg)
@@ -62,7 +94,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    auto parsed = parse_weights(root + "/yolov3-tiny.weights", *cfg);
+    auto parsed = parse_weights(root + "/yolov3-tiny.weights", *cfg, resource);
     if (!parsed)
     {
         std::printf("parse_weights failed: %s/yolov3-tiny.weights\n", root.c_str());
@@ -76,23 +108,37 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    auto pixels = load(dumps + "/input_c3_h416_w416.bin");
+    const auto loaded = load(dumps + "/input_c3_h416_w416.bin");
     const auto expected = static_cast<std::size_t>(network->net.channels)
                         * network->net.height * network->net.width;
-    if (pixels.size() != expected)
+    if (loaded.size() != expected)
     {
         std::printf("input: wanted %zu floats, %s/input_c3_h416_w416.bin has %zu\n",
-                    expected, dumps.c_str(), pixels.size());
+                    expected, dumps.c_str(), loaded.size());
         return 2;
     }
+
+    // The input has to live on the same resource as the layer outputs, or a real
+    // kernel would be reading host memory for the first convolution.
+    std::pmr::vector<float> pixels(loaded.begin(), loaded.end(), resource);
 
     Tensor input{pixels.data(), network->net.channels,
                  network->net.height, network->net.width};
 
-    CPUBackend backend;
-    forward(*network, backend, input);
+    CPUBackend cpu;
+#ifdef LITHIUM_CUDA
+    GPUBackend gpu;
+#endif
+    Backend* backend{&cpu};
+#ifdef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        backend = &gpu;
+    }
+#endif
+    forward(*network, *backend, input);
 
-    std::printf("%s\n\n", dumps.c_str());
+    std::printf("%s   [%s backend]\n\n", dumps.c_str(), which.c_str());
     std::puts("layer  type          shape       max|diff|      scale   diff/scale");
 
     int failures{0};

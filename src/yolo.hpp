@@ -19,7 +19,6 @@ namespace lithium
         std::vector<float> probs{};
     };
 
-    void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out);
     std::vector<Decoded> decode(const Network& network, float threshold = 0.25f);
     void nms(std::vector<Decoded>& predictions, float iou_threshold = 0.45f);
     void revert_sizes(std::vector<Decoded>& predictions, int image_w, int image_h,

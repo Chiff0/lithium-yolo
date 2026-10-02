@@ -10,6 +10,7 @@ namespace lithium
         void maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
         void upsample(const Tensor& in, Tensor& out, int stride) override;
         void concat(const std::vector<Tensor>& ins, Tensor& out) override;
+        void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
         void download(const Tensor& device, float* host) override;
     };
 }

@@ -192,6 +192,19 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
 }
 
 
+static float sigmoid(float x)
+{
+    return 1.0f / (1.0f + std::exp(-x));
+}
+
+static void apply_sigmoid(float* arr, std::size_t start, int len)
+{
+    for (int i{0}; i < len; ++i)
+    {
+        arr[start + i] = sigmoid(arr[start + i]);
+    }
+}
+
 namespace lithium 
 {
     void CPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
@@ -233,5 +246,20 @@ namespace lithium
     void CPUBackend::download(const Tensor& device, float* host)
     {
         std::copy(device.data, device.data + device.count(), host);
+    }
+
+    void CPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
+    {
+        std::copy(in.data, in.data + in.count(), out.data);
+        int hw{out.h * out.w};
+        int entries{5 + layer.spec.yolo_classes};
+
+        for (std::size_t i{0}; i < layer.spec.yolo_mask.size(); ++i)
+        {
+            int base{static_cast<int>(i) * entries * hw};
+
+            apply_sigmoid(out.data, static_cast<std::size_t>(base), 2 * hw);
+            apply_sigmoid(out.data, static_cast<std::size_t>(base + 4 * hw), (entries - 4) * hw);
+        }
     }
 }

@@ -4,20 +4,6 @@
 #include <algorithm>
 #include <cmath>
 
-static float sigmoid(float x)
-{
-    return 1.0f / (std::exp(-x) + 1.0f);
-} 
-
-static void apply_sigmoid(float* arr, std::size_t start, int len)
-{
-    for (int i{0}; i < len; ++i)
-    {
-        arr[start + i] = sigmoid(arr[start + i]); 
-    }
-
-}
-
 static lithium::Decoded create(
     const lithium::Tensor& in, int base, int j,
     int classes, std::pair<float, float> anchor,
@@ -107,21 +93,6 @@ namespace lithium
         }
     }
 
-    void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
-    {
-        std::copy(in.data, in.data + in.count(), out.data);
-        int hw{out.h * out.w};
-        int entries{5 + layer.spec.yolo_classes};
-
-        for (std::size_t i{0}; i < layer.spec.yolo_mask.size(); ++i)
-        {
-            int base{static_cast<int>(i) * entries * hw};
-
-            apply_sigmoid(out.data, static_cast<std::size_t>(base), 2 * hw);
-            apply_sigmoid(out.data, static_cast<std::size_t>(base + 4 * hw), (entries - 4) * hw);
-        }
-        return;
-    }
 
     std::vector<Decoded> decode(const Network& network, float threshold)
     {

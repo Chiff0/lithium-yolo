@@ -14,6 +14,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# nvcc 12.x accepts no higher than C++20, so the .cu files build at 20 while the
+# host sources stay at 23. This has to be set before add_library(), because a
+# target captures the standard properties at creation; setting it later leaves
+# CMake asking nvcc for "CUDA23" and the generate step fails. Harmless when
+# LITHIUM_CUDA is off, since no CUDA source is in the build.
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_EXTENSIONS OFF)
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -57,13 +66,22 @@ if(LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)
 
 
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_backend.cu)
-        enable_language(CUDA)
-        target_sources(lithium_core PRIVATE src/cuda_backend.cu)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/gpu_backend.cu)
+        # nvcc has its own host compiler, which CMAKE_CXX_COMPILER does not set.
+        # Left alone it picks the system g++ (11 on JetPack 6), whose libstdc++
+        # lacks the C++20 polymorphic_allocator<> that layer.hpp uses. Point it
+        # at the same compiler the C++ sources use.
+        if(NOT CMAKE_CUDA_HOST_COMPILER)
+            set(CMAKE_CUDA_HOST_COMPILER ${CMAKE_CXX_COMPILER})
+        endif()
 
+        enable_language(CUDA)
+        target_sources(lithium_core PRIVATE src/gpu_backend.cu)
+
+        # 87 is Orin. Drop it to let CMake probe the building machine instead.
         set_target_properties(lithium_core PROPERTIES CUDA_ARCHITECTURES 87)
     else()
-        message(STATUS "LITHIUM_CUDA: src/cuda_backend.cu not present yet "
+        message(STATUS "LITHIUM_CUDA: src/gpu_backend.cu not present yet "
                        "- building the CUDA allocator only")
     endif()
 endif()

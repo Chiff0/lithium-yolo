@@ -2,6 +2,11 @@
 #include "network.hpp"
 #include "preprocess.hpp"
 
+#ifdef LITHIUM_CUDA
+#include "allocator.hpp"
+#include "gpu_backend.hpp"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -24,12 +29,37 @@ int main(int argc, char** argv)
 {
     if (argc < 4)
     {
-        std::puts("usage: bench <cfg> <weights> <image> [iterations] [warmup]");
+        std::puts("usage: bench <cfg> <weights> <image> [iterations] [warmup] [cpu|gpu]");
         return 2;
     }
 
     const int iterations{(argc > 4) ? std::atoi(argv[4]) : 200};
     const int warmup{(argc > 5) ? std::atoi(argv[5]) : 20};
+    const std::string which{(argc > 6) ? argv[6] : "cpu"};
+
+    if (which != "cpu" && which != "gpu")
+    {
+        std::puts("backend must be cpu or gpu");
+        return 2;
+    }
+#ifndef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        std::puts("built without LITHIUM_CUDA: the gpu backend is not in this binary");
+        return 2;
+    }
+#endif
+
+#ifdef LITHIUM_CUDA
+    lithium::cuda_resource managed{};
+#endif
+    std::pmr::memory_resource* resource{std::pmr::get_default_resource()};
+#ifdef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        resource = &managed;
+    }
+#endif
 
     auto cfg{lithium::parse_cfg(argv[1])};
     if (!cfg)
@@ -38,7 +68,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    auto weights{lithium::parse_weights(argv[2], *cfg)};
+    auto weights{lithium::parse_weights(argv[2], *cfg, resource)};
     if (!weights)
     {
         std::puts("failed to parse weights");
@@ -67,11 +97,21 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    lithium::CPUBackend backend{};
+    lithium::CPUBackend cpu{};
+#ifdef LITHIUM_CUDA
+    lithium::GPUBackend gpu{};
+#endif
+    lithium::Backend* backend{&cpu};
+#ifdef LITHIUM_CUDA
+    if (which == "gpu")
+    {
+        backend = &gpu;
+    }
+#endif
 
     for (int i{0}; i < warmup; ++i)
     {
-        forward(*network, backend, input);
+        forward(*network, *backend, input);
     }
 
     std::vector<double> ms{};
@@ -80,7 +120,7 @@ int main(int argc, char** argv)
     for (int i{0}; i < iterations; ++i)
     {
         const auto t0{std::chrono::steady_clock::now()};
-        forward(*network, backend, input);
+        forward(*network, *backend, input);
         const auto t1{std::chrono::steady_clock::now()};
         ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
     }
@@ -95,8 +135,8 @@ int main(int argc, char** argv)
     const double wall{std::chrono::duration<double>(wall_end - wall_start).count()};
     std::sort(ms.begin(), ms.end());
 
-    std::printf("\nforward() over %d iterations, %d warmup, %dx%d input\n\n",
-                iterations, warmup, input.w, input.h);
+    std::printf("\nforward() over %d iterations, %d warmup, %dx%d input, %s backend\n\n",
+                iterations, warmup, input.w, input.h, which.c_str());
     std::printf("  mean    %8.2f ms\n", mean);
     std::printf("  min     %8.2f ms\n", ms.front());
     std::printf("  p50     %8.2f ms\n", percentile(ms, 50.0));
