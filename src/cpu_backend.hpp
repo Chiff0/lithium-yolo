@@ -12,5 +12,6 @@ namespace lithium
         void concat(const std::vector<Tensor>& ins, Tensor& out) override;
         void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
         void download(const Tensor& device, float* host) override;
+        void sync() override;
     };
 }

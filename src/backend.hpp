@@ -13,5 +13,6 @@ namespace lithium
         virtual void concat(const std::vector<Tensor>& ins, Tensor& out) = 0;
         virtual void yolo(const NetworkLayer&, const Tensor& in, Tensor& out) = 0;
         virtual void download(const Tensor&, float* host) = 0;
+        virtual void sync() = 0;
     };
 }

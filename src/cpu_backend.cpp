@@ -262,4 +262,6 @@ namespace lithium
             apply_sigmoid(out.data, static_cast<std::size_t>(base + 4 * hw), (entries - 4) * hw);
         }
     }
+
+    void CPUBackend::sync() {return;}
 }
