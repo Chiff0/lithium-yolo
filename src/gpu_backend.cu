@@ -151,13 +151,6 @@ __global__ void apply_sigmoid(float* arr, int n, int slice_dim, int slices)
 
 
 
-
-
-
-
-
-
-
 static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
 {
     int offset{0};
@@ -207,42 +200,17 @@ __global__ void add_bias(float* out, int n, int hw, const float* bias)
 
 
 
-
-
-
-
-
-
-
-
-
-
-// UTIL FUNCTIONS
-
-static float leaky(float x)
+__global__ void apply_leaky(float* out, int n)
 {
-    return (x > 0) ? x : x * 0.1f; 
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    
+    if (idx >= n) { return; }
+
+    out[idx] = (out[idx] > 0) ? out[idx] : out[idx] * 0.1f;
 }
 
-[[maybe_unused]] static float linear(float x)
-{
-    return x;
-}
 
-static void apply_activation(lithium::Tensor& out, lithium::Activation activation)
-{
-    switch(activation)
-    {
-        case lithium::Activation::Leaky:
-        for (std::size_t i{0}; i < out.count(); ++i)
-        {
-            out.data[i] = leaky(out.data[i]);
-        }
-        break;
-        case lithium::Activation::Linear:
-        break;
-    }
-}
+
 static int ceil_div(int len, int threads)
 {
     return (len + threads - 1) / threads;
@@ -264,20 +232,27 @@ namespace lithium
             layer.spec.size, layer.spec.size
         )};
         gemm(cols.data(), out, layer.weights.weights.data(), 
-             in.c * layer.spec.size * layer.spec.size);
-             
+        in.c * layer.spec.size * layer.spec.size);
+        
         if (layer.spec.batch_norm)
         {
             batchnorm<<<blocks, threads>>>(out.data, len, out.h * out.w,
-                        layer.weights.scales.data(), layer.weights.biases.data(),
-                        layer.weights.rolling_mean.data(), layer.weights.rolling_variance.data());
-        }
-        else
-        {
-            add_bias<<<blocks, threads>>>(out.data, len, out.h * out.w, layer.weights.biases.data());
+                layer.weights.scales.data(), layer.weights.biases.data(),
+                layer.weights.rolling_mean.data(), layer.weights.rolling_variance.data());
+            }
+            else
+            {
+                add_bias<<<blocks, threads>>>(out.data, len, out.h * out.w, layer.weights.biases.data());
+            }
+            switch(layer.spec.activation)
+            {
+                case lithium::Activation::Leaky:
+                apply_leaky<<<blocks, threads>>>(out.data, len);
+                break;
+                case lithium::Activation::Linear:
+                break;
         }
         sync();
-        apply_activation(out, layer.spec.activation);
     }
     
     void GPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
