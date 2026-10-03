@@ -119,18 +119,7 @@ static void apply_sigmoid(float* arr, std::size_t start, int len)
     }
 }
 
-static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
-{
-    int offset{0};
-    for (auto& tensor : ins)
-    {
-        int len{static_cast<int>(tensor.count())};
-        std::copy(tensor.data, tensor.data + len, out.data + offset);
-        offset += len;
-    }
-    
-    return;
-}
+
 
 
 
@@ -148,14 +137,15 @@ __global__ void upsample(float* in, float* out, int n, int co, int ho, int wo,
     int y = ((idx_out / wo) % ho) / stride;
     int x = (idx_out % wo) / stride;
     int c = idx_out / (ho * wo);
-    
-    
+
+    int idx_in = wi * (c * hi + y) + x;
+
     out[idx_out] = in[idx_in];
     
     return;
 }
 
-__global__ void maxpool(float* in, float* out, int window, int stride, int len_out, 
+__global__ void maxpool(float* in, float* out, int window, int stride, int len_out, int pad,
                         int co, int ho, int wo, int ci, int hi, int wi)
 {
     int idx_out = threadIdx.x + blockDim.x * blockIdx.x; 
@@ -185,6 +175,19 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
         }
     }
     out[idx_out] = max;
+    return;
+}
+
+static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
+{
+    int offset{0};
+    for (auto& tensor : ins)
+    {
+        int len{static_cast<int>(tensor.count())};
+        cudaMemcpy(out.data + offset, tensor.data, sizeof(float) * len, cudaMemcpyDefault);
+        offset += len;
+    }
+    // no need for sync cause memcpy blocks
     return;
 }
 
@@ -281,7 +284,8 @@ namespace lithium
         int threads{256};
         int blocks{ceil_div(len, threads)};
 
-        ::maxpool<<<blocks, threads>>>(in.data, out.data, layer.spec.size, layer.spec.stride, len, 
+        ::maxpool<<<blocks, threads>>>(in.data, out.data, layer.spec.size, layer.spec.stride, len,
+                                       layer.spec.pad,
                                        out.c, out.h, out.w, in.c, in.h, in.w);
         sync();
     }
