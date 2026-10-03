@@ -106,23 +106,6 @@ static void add_bias(lithium::Tensor& out,
 
 
 
-static float sigmoid(float x)
-{
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-static void apply_sigmoid(float* arr, std::size_t start, int len)
-{
-    for (int i{0}; i < len; ++i)
-    {
-        arr[start + i] = sigmoid(arr[start + i]);
-    }
-}
-
-
-
-
-
 
 
 // CUDA FUNCITONS
@@ -178,6 +161,33 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
     return;
 }
 
+
+__global__ void apply_sigmoid(float* arr, int n, int slice_dim, int slices)
+{
+    int idx = threadIdx.x + blockDim.x * blockIdx.x; 
+    if (idx >= n) { return; }
+
+    int anchor_offset{slice_dim * slices};
+    int slice{(idx % anchor_offset) / slice_dim};
+
+    if (slice != 2 && slice != 3)
+    {
+        arr[idx] = 1.0f / (1.0f + exp(-arr[idx]));
+    }
+
+    return;
+
+}
+
+
+
+
+
+
+
+
+
+
 static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
 {
     int offset{0};
@@ -190,16 +200,6 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
     // no need for sync cause memcpy blocks
     return;
 }
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -315,17 +315,16 @@ namespace lithium
             
     void GPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        std::copy(in.data, in.data + in.count(), out.data);
+        cudaMemcpy(out.data, in.data, sizeof(float) * static_cast<int>(in.count()), cudaMemcpyDefault);
         int hw{out.h * out.w};
+        
+        int len{static_cast<int>(out.count())};
+        int threads{256};
+        int blocks{ceil_div(len, threads)};
         int entries{5 + layer.spec.yolo_classes};
-
-        for (std::size_t i{0}; i < layer.spec.yolo_mask.size(); ++i)
-        {
-            int base{static_cast<int>(i) * entries * hw};
-
-            apply_sigmoid(out.data, static_cast<std::size_t>(base), 2 * hw);
-            apply_sigmoid(out.data, static_cast<std::size_t>(base + 4 * hw), (entries - 4) * hw);
-        }
+        apply_sigmoid<<<blocks, threads>>>(out.data, len, hw, entries);
+        sync();
+        
     }
 
     void GPUBackend::sync()
