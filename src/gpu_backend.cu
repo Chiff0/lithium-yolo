@@ -60,45 +60,15 @@ static void gemm(
     return;
 }
 
-static void batch_normalize(lithium::Tensor& out, 
-                            const lithium::LayerWeights& weights
-)
-{
-    std::size_t size_per_channel{static_cast<std::size_t>(out.h) * out.w};
-    for (auto i{0}; i < out.c; ++i)
-    {
-        auto dev = static_cast<float>(std::sqrt(static_cast<double>(weights.rolling_variance[i] + 1e-5)));
-        auto offset{size_per_channel * i};
-        auto scale{weights.scales[i]}, bias{weights.biases[i]}, mean{weights.rolling_mean[i]};
-        for(auto j{offset}; j < offset + size_per_channel; ++j)
-        {
-            // I do all 3 there, why not 
-            out.data[j] = (out.data[j] - mean) / dev; //normalize
-            out.data[j] *= scale; // scale
-            out.data[j] += bias; // add bias
-            
-        }
-    }
-}
 
 
 
 
-static void add_bias(lithium::Tensor& out, 
-                    const lithium::LayerWeights& weights
-)
-{
-    std::size_t size_per_channel{static_cast<std::size_t>(out.h) * out.w};
-    for (auto i{0}; i < out.c; ++i)
-    {
-        auto offset{size_per_channel * i};
-        auto bias{weights.biases[i]};
-        for (auto j{offset}; j < offset + size_per_channel; ++j)
-        {
-            out.data[j] += bias;
-        }
-    }
-}
+
+
+
+
+
 
 
 
@@ -206,10 +176,34 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
 
 
 
+__global__ void batchnorm(float* out, int n, int hw, 
+                          const float* scale, const float* bias, 
+                          const float* mean /* >:( */, const float* variance)
+{
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    
+    if (idx >= n) { return; }
+
+    int i = idx / hw;
+
+    out[idx] = (out[idx] - mean[i]) / sqrtf(variance[i] + 1e-5f);
+    out[idx] *= scale[i];
+    out[idx] += bias[i];
+
+    return;
+}
 
 
+__global__ void add_bias(float* out, int n, int hw, const float* bias)
+{
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    
+    if (idx >= n) { return; }
 
+    int i = idx / hw;
 
+    out[idx] += bias[i];
+}
 
 
 
@@ -260,21 +254,29 @@ namespace lithium
 {
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
+
+        int len{static_cast<int>(out.count())};
+        int threads{256};
+        int blocks{ceil_div(len, threads)};
         auto cols{im2col(
             in, out, 
             layer.spec.pad, layer.spec.stride, 
             layer.spec.size, layer.spec.size
         )};
         gemm(cols.data(), out, layer.weights.weights.data(), 
-        in.c * layer.spec.size * layer.spec.size);
+             in.c * layer.spec.size * layer.spec.size);
+             
         if (layer.spec.batch_norm)
         {
-            batch_normalize(out, layer.weights);
+            batchnorm<<<blocks, threads>>>(out.data, len, out.h * out.w,
+                        layer.weights.scales.data(), layer.weights.biases.data(),
+                        layer.weights.rolling_mean.data(), layer.weights.rolling_variance.data());
         }
         else
         {
-            add_bias(out, layer.weights);
+            add_bias<<<blocks, threads>>>(out.data, len, out.h * out.w, layer.weights.biases.data());
         }
+        sync();
         apply_activation(out, layer.spec.activation);
     }
     
