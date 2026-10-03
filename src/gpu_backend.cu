@@ -103,6 +103,125 @@ static void add_bias(lithium::Tensor& out,
 
 
 
+
+
+
+static float sigmoid(float x)
+{
+    return 1.0f / (1.0f + std::exp(-x));
+}
+
+static void apply_sigmoid(float* arr, std::size_t start, int len)
+{
+    for (int i{0}; i < len; ++i)
+    {
+        arr[start + i] = sigmoid(arr[start + i]);
+    }
+}
+
+static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
+{
+    int offset{0};
+    for (auto& tensor : ins)
+    {
+        int len{static_cast<int>(tensor.count())};
+        std::copy(tensor.data, tensor.data + len, out.data + offset);
+        offset += len;
+    }
+    
+    return;
+}
+
+
+
+
+
+// CUDA FUNCITONS
+
+__global__ void upsample(float* in, float* out, int n, int co, int ho, int wo, 
+                         int ci, int hi, int wi, int stride)
+{
+    int idx_out = threadIdx.x + blockDim.x * blockIdx.x;
+    
+    if (idx_out >= n) { return; }
+    
+    int y = ((idx_out / wo) % ho) / stride;
+    int x = (idx_out % wo) / stride;
+    int c = idx_out / (ho * wo);
+    
+    
+    out[idx_out] = in[idx_in];
+    
+    return;
+}
+
+__global__ void maxpool(float* in, float* out, int window, int stride, int len_out, 
+                        int co, int ho, int wo, int ci, int hi, int wi)
+{
+    int idx_out = threadIdx.x + blockDim.x * blockIdx.x; 
+
+    if (idx_out >= len_out) { return; }
+    float max{-FLT_MAX};
+
+    int y = ((idx_out / wo) % ho) * stride - pad / 2;
+    int x = (idx_out % wo) * stride - pad / 2;
+    int c = idx_out / (ho * wo);
+    float curr{};
+    int idx_in{};
+
+    for (int i{0}; i < window; ++i)
+    {
+        for (int j{0}; j < window; ++j)
+        {   
+            idx_in = wi * (c * hi + y + j) + x + i; 
+            curr   = (x + i < 0 || y + j < 0 || x + i >= wi || y + j >= hi) 
+                     ? -FLT_MAX
+                     : in[idx_in];
+            
+            if (max < curr)
+            {
+                max = curr;
+            }
+        }
+    }
+    out[idx_out] = max;
+    return;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// UTIL FUNCTIONS
+
 static float leaky(float x)
 {
     return (x > 0) ? x : x * 0.1f; 
@@ -127,90 +246,13 @@ static void apply_activation(lithium::Tensor& out, lithium::Activation activatio
         break;
     }
 }
-
-static void maxpool(
-                   const lithium::Tensor& input, lithium::Tensor& out, 
-                   int pad, int stride, int h, int w
-                   )
-{
-    int nx{out.w},
-        ny{out.h};
-
-    std::size_t counter{0};
-    for (int i{0}; i < out.c; ++i)
-    {
-        for (int j{0}; j < ny; ++j)
-        {
-            for (int k{0}; k < nx; ++k)
-            {
-                float hi{-FLT_MAX};
-                for (int pos{0}; pos < h * w; ++pos)
-                {
-                    int x{pos % w + k * stride - pad / 2},
-                        y{pos / w + j * stride - pad / 2};
-
-                    float curr{(x < 0 || y < 0 || x >= input.w || y >= input.h)
-                        ? -FLT_MAX
-                        : input.data[input.index(i, x, y)]};
-                    if (curr > hi)
-                        hi = curr;
-                }
-                out.data[counter++] = hi;
-            }
-        }
-    }
-}
-
-static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
-{
-    int offset{0};
-    for (auto& tensor : ins)
-    {
-        int len{static_cast<int>(tensor.count())};
-        std::copy(tensor.data, tensor.data + len, out.data + offset);
-        offset += len;
-    }
-
-    return;
-}
-
-
-static float sigmoid(float x)
-{
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-static void apply_sigmoid(float* arr, std::size_t start, int len)
-{
-    for (int i{0}; i < len; ++i)
-    {
-        arr[start + i] = sigmoid(arr[start + i]);
-    }
-}
-
-// CUDA FUNCITONS
-
-__global__ void upsample(float* in, float* out, int n, int co, int ho, int wo, int ci, int hi, int wi, int stride)
-{
-    int idx_out = threadIdx.x + blockDim.x * blockIdx.x;
-
-    if (idx_out >= n) { return; }
-
-    int y = ((idx_out / wo) % ho) / stride;
-    int x = (idx_out % wo) / stride;
-    int c = idx_out / (ho * wo);
-    int idx_in = wi * (c * hi + y) + x;
-
-    out[idx_out] = in[idx_in];
-
-    return;
-}
-
 static int ceil_div(int len, int threads)
 {
     return (len + threads - 1) / threads;
 }
 
+
+//MAIN INTERFACE
 namespace lithium 
 {
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
@@ -221,7 +263,7 @@ namespace lithium
             layer.spec.size, layer.spec.size
         )};
         gemm(cols.data(), out, layer.weights.weights.data(), 
-            in.c * layer.spec.size * layer.spec.size);
+        in.c * layer.spec.size * layer.spec.size);
         if (layer.spec.batch_norm)
         {
             batch_normalize(out, layer.weights);
@@ -232,36 +274,41 @@ namespace lithium
         }
         apply_activation(out, layer.spec.activation);
     }
-
+    
     void GPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        ::maxpool(in, out, layer.spec.pad, layer.spec.stride, 
-            layer.spec.size, layer.spec.size);
-    }
+        int len{static_cast<int>(out.count())};
+        int threads{256};
+        int blocks{ceil_div(len, threads)};
 
+        ::maxpool<<<blocks, threads>>>(in.data, out.data, layer.spec.size, layer.spec.stride, len, 
+                                       out.c, out.h, out.w, in.c, in.h, in.w);
+        sync();
+    }
+        
     void GPUBackend::upsample(const Tensor& in, Tensor& out, int stride)
     {
         int len{static_cast<int>(out.count())};
         int threads{256};
         int blocks{ceil_div(len, threads)};
         ::upsample<<<blocks, threads>>>(in.data, out.data, len, 
-                                         out.c, out.h, out.w, 
-                                         in.c, in.h, in.w, 
-                                         stride);
-
-        sync();
-    }
-
+            out.c, out.h, out.w, 
+            in.c, in.h, in.w, 
+            stride);
+            
+            sync();
+        }
+        
     void GPUBackend::concat(const std::vector<Tensor>& ins, Tensor& out)
     {
         ::concat(ins, out);
     }
-
+    
     void GPUBackend::download(const Tensor& device, float* host)
     {
         std::copy(device.data, device.data + device.count(), host);
     }
-
+            
     void GPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         std::copy(in.data, in.data + in.count(), out.data);
