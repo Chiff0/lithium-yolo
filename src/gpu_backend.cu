@@ -316,8 +316,7 @@ namespace lithium
         }
     }
 
-    // Created on first conv rather than in a constructor: the harnesses construct a
-    // GPUBackend even when running --cpu, and this way that costs nothing.
+
     void GPUBackend::check_handle()
     {
         if (handle != nullptr)
@@ -330,5 +329,17 @@ namespace lithium
             std::fprintf(stderr, "cublasCreate: %s\n", cublasGetStatusString(status));
             std::abort();
         }
+
+#ifdef LITHIUM_TF32
+        const cublasStatus_t math{cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH)};
+        if (math != CUBLAS_STATUS_SUCCESS)
+        {
+            std::fprintf(stderr, "cublasSetMathMode: %s\n", cublasGetStatusString(math));
+            std::abort();
+        }
+        std::fprintf(stderr, "cublas math: TF32 (10-bit mantissa)\n");
+#else
+        std::fprintf(stderr, "cublas math: FP32\n");
+#endif
     }
 }

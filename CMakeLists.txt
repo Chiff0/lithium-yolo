@@ -9,6 +9,12 @@ option(LITHIUM_ASAN       "Address + UB sanitizers, for the test build"         
 
 option(LITHIUM_FAST_MATH  "Relax IEEE float semantics (-ffast-math)"            OFF)
 
+# TF32 runs FP32 inputs through the tensor cores with a 10-bit mantissa instead of
+# 23. Measured 2.76x on the layer-6 GEMM at a relative error near 4e-05 - a
+# numerics decision, not a free optimisation, and it will not pass
+# test_reference's 1e-5 tolerance. Any run with it on has to say so.
+option(LITHIUM_TF32       "Allow TF32 tensor-core math for FP32 GEMMs"          OFF)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -62,6 +68,9 @@ if(LITHIUM_CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     target_sources(lithium_core PRIVATE src/allocator.cpp)
+    if(LITHIUM_TF32)
+        target_compile_definitions(lithium_core PUBLIC LITHIUM_TF32)
+    endif()
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)
 
