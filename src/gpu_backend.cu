@@ -10,50 +10,28 @@
 
 
 static void gemm(
-    const float* in, lithium::Tensor& out, const float* weights, 
-    int patch_len
-)
-{
-    const int patches{out.h * out.w};
-    for (int f{0}; f < out.c; ++f)
+                 const float* in, lithium::Tensor& out, const float* weights, 
+                 int patches, int patch_len, int filters, cublasContext* handle
+                )
+{ 
+    float alpha{1.0f};
+    float beta{};
+    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, patch_len, weights, patch_len, &beta, out.data, patches);
+
+    if (status != CUBLAS_STATUS_SUCCESS)
     {
-        for (int p{0}; p < patches; ++p)
-        {
-            float sum{0.0f};
-            for (int i{0}; i < patch_len; ++i)
-            {
-                sum += weights[f * patch_len + i] * in[p * patch_len + i];
-            }
-            out.data[f * patches + p] = sum;
-        }
+        std::fprintf(stderr, "cublasSgemm: %s\n", cublasGetStatusString(status));
+        std::abort();
     }
-    return;
+
 }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// CUDA FUNCITONS
-
 __global__ void im2col(const float* in, float* out, int out_len, int window,
-                       int stride, int pad, int patch_len, int hi, int wi, int wo)
-{
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    int stride, int pad, int patch_len, int hi, int wi, int wo)
+    {
+        int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
     if (idx >= out_len) { return; }
 
@@ -210,11 +188,12 @@ static int ceil_div(int len, int threads)
 }
 
 
-//MAIN INTERFACE
 namespace lithium 
 {
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
+
+        check_handle();
 
         int len{static_cast<int>(out.count())};
         int threads{256};
@@ -230,7 +209,8 @@ namespace lithium
             in.h, in.w, out.w);
         sync();
 
-        gemm(workspace, out, layer.weights.weights.data(), patch_len);
+        gemm(workspace, out, layer.weights.weights.data(),
+             out.h * out.w, patch_len, out.c, handle);
         
         if (layer.spec.batch_norm)
         {
@@ -311,8 +291,6 @@ namespace lithium
         }
     }
 
-    // Managed rather than plain cudaMalloc: gemm is still host code and has to read
-    // this. Swapping in cublasSgemm later will not require changing it.
     void GPUBackend::reserve_workspace(std::size_t floats)
     {
         if (floats <= workspace_floats)
@@ -337,6 +315,26 @@ namespace lithium
         if (workspace != nullptr)
         {
             cudaFree(workspace);
+        }
+        if (handle != nullptr)
+        {
+            cublasDestroy(handle);
+        }
+    }
+
+    // Created on first conv rather than in a constructor: the harnesses construct a
+    // GPUBackend even when running --cpu, and this way that costs nothing.
+    void GPUBackend::check_handle()
+    {
+        if (handle != nullptr)
+        {
+            return;
+        }
+        const cublasStatus_t status{cublasCreate(&handle)};
+        if (status != CUBLAS_STATUS_SUCCESS)
+        {
+            std::fprintf(stderr, "cublasCreate: %s\n", cublasGetStatusString(status));
+            std::abort();
         }
     }
 }

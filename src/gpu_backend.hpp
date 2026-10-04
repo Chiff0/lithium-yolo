@@ -4,6 +4,8 @@
 
 #include <cstddef>
 
+struct cublasContext;
+
 namespace lithium
 {
     struct GPUBackend : Backend
@@ -20,7 +22,9 @@ namespace lithium
 
     private:
         float* workspace{nullptr};
+        cublasContext* handle{nullptr};
         std::size_t workspace_floats{0};
         void reserve_workspace(std::size_t floats);
+        void check_handle();
     };
 }
