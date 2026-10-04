@@ -128,10 +128,9 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
     for (auto& tensor : ins)
     {
         int len{static_cast<int>(tensor.count())};
-        cudaMemcpy(out.data + offset, tensor.data, sizeof(float) * len, cudaMemcpyDefault);
+        cudaMemcpyAsync(out.data + offset, tensor.data, sizeof(float) * len, cudaMemcpyDefault);
         offset += len;
     }
-    // no need for sync cause memcpy blocks
     return;
 }
 
@@ -207,7 +206,6 @@ namespace lithium
             in.data, workspace, cols, window,
             layer.spec.stride, layer.spec.pad, patch_len,
             in.h, in.w, out.w);
-        sync();
 
         gemm(workspace, out, layer.weights.weights.data(),
              out.h * out.w, patch_len, out.c, handle);
@@ -230,7 +228,6 @@ namespace lithium
                 case lithium::Activation::Linear:
                 break;
         }
-        sync();
     }
     
     void GPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
@@ -242,7 +239,6 @@ namespace lithium
         ::maxpool<<<blocks, threads>>>(in.data, out.data, layer.spec.size, layer.spec.stride, len,
                                        layer.spec.pad,
                                        out.c, out.h, out.w, in.c, in.h, in.w);
-        sync();
     }
         
     void GPUBackend::upsample(const Tensor& in, Tensor& out, int stride)
@@ -255,7 +251,6 @@ namespace lithium
             in.c, in.h, in.w, 
             stride);
             
-            sync();
         }
         
     void GPUBackend::concat(const std::vector<Tensor>& ins, Tensor& out)
@@ -270,7 +265,7 @@ namespace lithium
             
     void GPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        cudaMemcpy(out.data, in.data, sizeof(float) * static_cast<int>(in.count()), cudaMemcpyDefault);
+        cudaMemcpyAsync(out.data, in.data, sizeof(float) * static_cast<int>(in.count()), cudaMemcpyDefault);
         int hw{out.h * out.w};
         
         int len{static_cast<int>(out.count())};
@@ -278,7 +273,6 @@ namespace lithium
         int blocks{ceil_div(len, threads)};
         int entries{5 + layer.spec.yolo_classes};
         apply_sigmoid<<<blocks, threads>>>(out.data, len, hw, entries);
-        sync();
         
     }
 
