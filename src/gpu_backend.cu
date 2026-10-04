@@ -1,43 +1,13 @@
 #include "gpu_backend.hpp"
 #include <cublas_v2.h>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
 
 
 
-static std::vector<float> im2col(
-                                const lithium::Tensor& input, const lithium::Tensor& out, 
-                                int pad, int stride, int h, int w
-                                )
-{
-    std::vector<float> arr{};
-    int nx{out.w},
-        ny{out.h};
-    arr.resize(static_cast<std::size_t>(h * w) * input.c * nx * ny);
-
-    std::size_t counter{0};
-    for (int j{0}; j < ny; ++j)
-    {
-        for (int k{0}; k < nx; ++k)
-        {
-            for (int i{0}; i < input.c; ++i)
-            {
-                for (int pos{0}; pos < h * w; ++pos)
-                {
-                    int x{pos % w + k * stride - pad},
-                        y{pos / w + j * stride - pad};
-
-                    arr[counter++] = (x < 0 || y < 0 || x >= input.w || y >= input.h)
-                        ? 0.0f
-                        : input.data[input.index(i, x, y)];
-                }
-            }
-        }
-    }
-    return arr;
-}
 
 static void gemm(
     const float* in, lithium::Tensor& out, const float* weights, 
@@ -79,6 +49,29 @@ static void gemm(
 
 
 // CUDA FUNCITONS
+
+__global__ void im2col(const float* in, float* out, int out_len, int window,
+                       int stride, int pad, int patch_len, int hi, int wi, int wo)
+{
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    if (idx >= out_len) { return; }
+
+    int out_idx{idx / patch_len}; // not the im2col out kernel but the out kernel we would use for naive convolution
+
+    int channel{(idx % patch_len) / (window * window)};
+
+    int pos{idx % (window * window)};
+    int ox{out_idx % wo}, oy{out_idx / wo};
+
+    int ix{pos % window + ox * stride - pad}, iy{pos / window + oy * stride - pad};
+
+    out[idx] = (ix < 0 || iy < 0 || ix >= wi || iy >= hi)
+        ? 0.0f
+        : in[(channel * hi + iy) * wi + ix];
+
+    return;
+}
 
 __global__ void upsample(float* in, float* out, int n, int co, int ho, int wo, 
                          int ci, int hi, int wi, int stride)
@@ -226,13 +219,18 @@ namespace lithium
         int len{static_cast<int>(out.count())};
         int threads{256};
         int blocks{ceil_div(len, threads)};
-        auto cols{im2col(
-            in, out, 
-            layer.spec.pad, layer.spec.stride, 
-            layer.spec.size, layer.spec.size
-        )};
-        gemm(cols.data(), out, layer.weights.weights.data(), 
-        in.c * layer.spec.size * layer.spec.size);
+        const int window{layer.spec.size};
+        const int patch_len{in.c * window * window};
+        const int cols{out.h * out.w * patch_len};
+        reserve_workspace(static_cast<std::size_t>(cols));
+
+        ::im2col<<<ceil_div(cols, threads), threads>>>(
+            in.data, workspace, cols, window,
+            layer.spec.stride, layer.spec.pad, patch_len,
+            in.h, in.w, out.w);
+        sync();
+
+        gemm(workspace, out, layer.weights.weights.data(), patch_len);
         
         if (layer.spec.batch_norm)
         {
@@ -310,6 +308,35 @@ namespace lithium
         if (status != cudaSuccess)
         {
             std::fprintf(stderr, "cuda: %s\n", cudaGetErrorString(status));
+        }
+    }
+
+    // Managed rather than plain cudaMalloc: gemm is still host code and has to read
+    // this. Swapping in cublasSgemm later will not require changing it.
+    void GPUBackend::reserve_workspace(std::size_t floats)
+    {
+        if (floats <= workspace_floats)
+        {
+            return;
+        }
+        if (workspace != nullptr)
+        {
+            cudaFree(workspace);
+        }
+        const cudaError_t status{cudaMallocManaged(&workspace, floats * sizeof(float))};
+        if (status != cudaSuccess)
+        {
+            std::fprintf(stderr, "im2col workspace: %s\n", cudaGetErrorString(status));
+            std::abort();
+        }
+        workspace_floats = floats;
+    }
+
+    GPUBackend::~GPUBackend()
+    {
+        if (workspace != nullptr)
+        {
+            cudaFree(workspace);
         }
     }
 }

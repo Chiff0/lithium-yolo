@@ -2,6 +2,8 @@
 
 #include "backend.hpp"
 
+#include <cstddef>
+
 namespace lithium
 {
     struct GPUBackend : Backend
@@ -13,5 +15,12 @@ namespace lithium
         void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
         void download(const Tensor& device, float* host) override;
         void sync() override;
+
+        ~GPUBackend() override;
+
+    private:
+        float* workspace{nullptr};
+        std::size_t workspace_floats{0};
+        void reserve_workspace(std::size_t floats);
     };
 }
