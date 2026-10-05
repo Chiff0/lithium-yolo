@@ -9,11 +9,20 @@ option(LITHIUM_ASAN       "Address + UB sanitizers, for the test build"         
 
 option(LITHIUM_FAST_MATH  "Relax IEEE float semantics (-ffast-math)"            OFF)
 
-# TF32 runs FP32 inputs through the tensor cores with a 10-bit mantissa instead of
-# 23. Measured 2.76x on the layer-6 GEMM at a relative error near 4e-05 - a
-# numerics decision, not a free optimisation, and it will not pass
-# test_reference's 1e-5 tolerance. Any run with it on has to say so.
+
 option(LITHIUM_TF32       "Allow TF32 tensor-core math for FP32 GEMMs"          OFF)
+
+
+option(LITHIUM_FP16       "Store the GEMM's inputs as FP16 (FP32 accumulate)"  OFF)
+
+
+if(LITHIUM_FP16 AND LITHIUM_TF32)
+    message(FATAL_ERROR
+        "LITHIUM_FP16 and LITHIUM_TF32 are mutually exclusive. TF32 is a math "
+        "mode for FP32 GEMM inputs; with LITHIUM_FP16 the inputs are __half, "
+        "so the TF32 setting has no effect other than to make the startup "
+        "banner lie about which path is running. Pick one.")
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -70,6 +79,9 @@ if(LITHIUM_CUDA)
     target_sources(lithium_core PRIVATE src/allocator.cpp)
     if(LITHIUM_TF32)
         target_compile_definitions(lithium_core PUBLIC LITHIUM_TF32)
+    endif()
+    if(LITHIUM_FP16)
+        target_compile_definitions(lithium_core PUBLIC LITHIUM_FP16)
     endif()
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)

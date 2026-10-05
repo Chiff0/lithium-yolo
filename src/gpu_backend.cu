@@ -1,5 +1,7 @@
 #include "gpu_backend.hpp"
 #include <cublas_v2.h>
+#include <cuda_fp16.h>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -7,30 +9,79 @@
 #include <cmath>
 
 
+#ifdef LITHIUM_FP16
+using work_t = __half;
+#else
+using work_t = float;
+#endif
+
+
+#ifdef LITHIUM_FP16
+static void* upload_as_half(const float* source, std::size_t count)
+{
+    std::vector<__half> staging(count);
+    for (std::size_t i{0}; i < count; ++i)
+    {
+        staging[i] = __float2half(source[i]);
+    }
+
+    void* device{nullptr};
+    const cudaError_t allocated{cudaMalloc(&device, count * sizeof(__half))};
+    if (allocated != cudaSuccess)
+    {
+        std::fprintf(stderr, "half weights alloc (%zu elements): %s\n",
+                     count, cudaGetErrorString(allocated));
+        std::abort();
+    }
+
+    const cudaError_t copied{cudaMemcpy(device, staging.data(),
+                                        count * sizeof(__half),
+                                        cudaMemcpyHostToDevice)};
+    if (copied != cudaSuccess)
+    {
+        std::fprintf(stderr, "half weights upload: %s\n", cudaGetErrorString(copied));
+        std::abort();
+    }
+    return device;
+}
+#endif
+
+
 
 
 static void gemm(
-                 const float* in, lithium::Tensor& out, const float* weights, 
+                 const work_t* in, lithium::Tensor& out, const work_t* weights, 
                  int patches, int patch_len, int filters, cublasContext* handle
                 )
 { 
     float alpha{1.0f};
     float beta{};
-    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, patch_len, weights, patch_len, &beta, out.data, patches);
 
+
+#ifdef LITHIUM_FP16
+    auto status = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, CUDA_R_16F, patch_len, weights, CUDA_R_16F, patch_len, &beta, out.data, CUDA_R_32F, patches);
+    if (status != CUBLAS_STATUS_SUCCESS)
+    {
+        std::fprintf(stderr, "cublasSgemmEx: %s\n", cublasGetStatusString(status));
+        std::abort();
+    }
+    
+#else
+    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, patch_len, weights, patch_len, &beta, out.data, patches);
     if (status != CUBLAS_STATUS_SUCCESS)
     {
         std::fprintf(stderr, "cublasSgemm: %s\n", cublasGetStatusString(status));
         std::abort();
     }
-
+#endif
 }
 
 
 
-__global__ void im2col(const float* in, float* out, int out_len, int window,
-    int stride, int pad, int patch_len, int hi, int wi, int wo)
-    {
+__global__ void im2col(const float* in, work_t* out,
+                       int out_len, int window,
+                       int stride, int pad, int patch_len, int hi, int wi, int wo)
+{
         int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
     if (idx >= out_len) { return; }
@@ -191,9 +242,8 @@ namespace lithium
 {
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-
         check_handle();
-
+        
         int len{static_cast<int>(out.count())};
         int threads{256};
         int blocks{ceil_div(len, threads)};
@@ -202,12 +252,15 @@ namespace lithium
         const int cols{out.h * out.w * patch_len};
         reserve_workspace(static_cast<std::size_t>(cols));
 
+
+        work_t* work{static_cast<work_t*>(workspace)};
+
         ::im2col<<<ceil_div(cols, threads), threads>>>(
-            in.data, workspace, cols, window,
+            in.data, work, cols, window,
             layer.spec.stride, layer.spec.pad, patch_len,
             in.h, in.w, out.w);
 
-        gemm(workspace, out, layer.weights.weights.data(),
+        gemm(work, out, static_cast<const work_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
         
         if (layer.spec.batch_norm)
@@ -285,6 +338,37 @@ namespace lithium
         }
     }
 
+    const void* GPUBackend::weights_for(const NetworkLayer& layer)
+    {
+#ifndef LITHIUM_FP16
+        return layer.weights.weights.data();
+#else
+
+        const float* key{layer.weights.weights.data()};
+        const std::size_t count{layer.weights.weights.size()};
+
+        for (const HalfWeights& entry : half_weights)
+        {
+            if (entry.key != key)
+            {
+                continue;
+            }
+            if (entry.count != count)
+            {
+                std::fprintf(stderr,
+                             "half weight cache: %p was %zu elements, now %zu\n",
+                             static_cast<const void*>(key), entry.count, count);
+                std::abort();
+            }
+            return entry.data;
+        }
+        sync();
+        void* converted{upload_as_half(key, count)};
+        half_weights.push_back({key, converted, count});
+        return converted;
+#endif
+    }
+
     void GPUBackend::reserve_workspace(std::size_t floats)
     {
         if (floats <= workspace_floats)
@@ -295,7 +379,9 @@ namespace lithium
         {
             cudaFree(workspace);
         }
-        const cudaError_t status{cudaMallocManaged(&workspace, floats * sizeof(float))};
+        
+        const cudaError_t status{cudaMallocManaged(&workspace, floats * sizeof(work_t))};
+        
         if (status != cudaSuccess)
         {
             std::fprintf(stderr, "im2col workspace: %s\n", cudaGetErrorString(status));
@@ -306,6 +392,15 @@ namespace lithium
 
     GPUBackend::~GPUBackend()
     {
+        for (const HalfWeights& entry : half_weights)
+        {
+            if (entry.data != nullptr)
+            {
+                cudaFree(entry.data);
+            }
+        }
+        half_weights.clear();
+
         if (workspace != nullptr)
         {
             cudaFree(workspace);
@@ -338,6 +433,9 @@ namespace lithium
             std::abort();
         }
         std::fprintf(stderr, "cublas math: TF32 (10-bit mantissa)\n");
+#elif defined(LITHIUM_FP16)
+        std::fprintf(stderr, "cublas math: FP16 storage, FP32 accumulate "
+                             "(10-bit mantissa, 5-bit exponent)\n");
 #else
         std::fprintf(stderr, "cublas math: FP32\n");
 #endif

@@ -3,6 +3,7 @@
 #include "backend.hpp"
 
 #include <cstddef>
+#include <vector>
 
 struct cublasContext;
 
@@ -21,10 +22,21 @@ namespace lithium
         ~GPUBackend() override;
 
     private:
-        float* workspace{nullptr};
+
+        struct HalfWeights
+        {
+            const float* key{nullptr};
+            void*        data{nullptr};
+            std::size_t  count{0};
+        };
+        std::vector<HalfWeights> half_weights{};
+
+        void* workspace{nullptr}; //cast in the actual backend
         cublasContext* handle{nullptr};
         std::size_t workspace_floats{0};
         void reserve_workspace(std::size_t floats);
         void check_handle();
+
+        const void* weights_for(const NetworkLayer& layer);
     };
 }
