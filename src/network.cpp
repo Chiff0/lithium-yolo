@@ -1,5 +1,7 @@
 #include "network.hpp"
 
+#include <cmath>
+
 
 static std::pair<int, int> conv_dim(int h, int w, int pad, int size, int stride)
 {
@@ -128,6 +130,26 @@ namespace lithium
             return std::unexpected(network_error::buffer_overlap);
         }
 
+        for (auto& layer : network.layers)
+        {
+            if (!layer.spec.batch_norm)
+                continue;
+
+            std::size_t block_size{static_cast<std::size_t>(layer.weights.weights.size() / layer.spec.filters)};
+
+            for (std::size_t i{}; i < static_cast<std::size_t>(layer.spec.filters); ++i)
+            {
+                float mul = layer.weights.scales[i] / std::sqrt(layer.weights.rolling_variance[i] + 1e-5f);
+                for (std::size_t j{}; j < block_size; ++j)
+                {
+                    std::size_t idx{block_size * i + j};
+                    layer.weights.weights[idx] *= mul;
+                }
+                layer.weights.biases[i] -= layer.weights.rolling_mean[i] * mul;
+            }
+            
+            layer.spec.batch_norm = false;
+        }
 
         return network;
     }

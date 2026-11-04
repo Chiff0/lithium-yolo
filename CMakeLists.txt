@@ -116,5 +116,10 @@ target_link_libraries(test_reference PRIVATE lithium_core)
 add_executable(bench test/bench.cpp)
 target_link_libraries(bench PRIVATE lithium_core)
 
+# forward() in a loop at an optional fps cap, reporting fps/ms/duty as JSON once
+# a second; the power benchmark and live view in bench/ drive it
+add_executable(fps_runner test/fps_runner.cpp)
+target_link_libraries(fps_runner PRIVATE lithium_core)
+
 enable_testing()
 add_test(NAME reference COMMAND test_reference ${CMAKE_CURRENT_SOURCE_DIR}/reference)

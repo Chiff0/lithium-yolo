@@ -22,3 +22,7 @@ detections.png
 .DS_Store
 
 engine
+
+# benchmark tooling
+bench/.venv/
+__pycache__/
