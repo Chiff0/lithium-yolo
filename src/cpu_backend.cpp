@@ -52,7 +52,7 @@ static void gemm(
             {
                 sum += weights[f * patch_len + i] * in[p * patch_len + i];
             }
-            out.data[f * patches + p] = sum;
+            out.data[static_cast<std::size_t>(p) * out.c + f] = sum;
         }
     }
     return;
@@ -62,13 +62,13 @@ static void batch_normalize(lithium::Tensor& out,
                             const lithium::LayerWeights& weights
 )
 {
-    std::size_t size_per_channel{static_cast<std::size_t>(out.h) * out.w};
+    std::size_t pixels{static_cast<std::size_t>(out.h) * out.w};
+    std::size_t channels{static_cast<std::size_t>(out.c)};
     for (auto i{0}; i < out.c; ++i)
     {
         auto dev = static_cast<float>(std::sqrt(static_cast<double>(weights.rolling_variance[i] + 1e-5)));
-        auto offset{size_per_channel * i};
         auto scale{weights.scales[i]}, bias{weights.biases[i]}, mean{weights.rolling_mean[i]};
-        for(auto j{offset}; j < offset + size_per_channel; ++j)
+        for (std::size_t j{static_cast<std::size_t>(i)}; j < pixels * channels; j += channels)
         {
             // I do all 3 there, why not 
             out.data[j] = (out.data[j] - mean) / dev; //normalize
@@ -86,12 +86,12 @@ static void add_bias(lithium::Tensor& out,
                     const lithium::LayerWeights& weights
 )
 {
-    std::size_t size_per_channel{static_cast<std::size_t>(out.h) * out.w};
+    std::size_t pixels{static_cast<std::size_t>(out.h) * out.w};
+    std::size_t channels{static_cast<std::size_t>(out.c)};
     for (auto i{0}; i < out.c; ++i)
     {
-        auto offset{size_per_channel * i};
         auto bias{weights.biases[i]};
-        for (auto j{offset}; j < offset + size_per_channel; ++j)
+        for (std::size_t j{static_cast<std::size_t>(i)}; j < pixels * channels; j += channels)
         {
             out.data[j] += bias;
         }
@@ -134,7 +134,6 @@ static void maxpool(
     int nx{out.w},
         ny{out.h};
 
-    std::size_t counter{0};
     for (int i{0}; i < out.c; ++i)
     {
         for (int j{0}; j < ny; ++j)
@@ -153,7 +152,7 @@ static void maxpool(
                     if (curr > hi)
                         hi = curr;
                 }
-                out.data[counter++] = hi;
+                out.data[out.index(i, k, j)] = hi;
             }
         }
     }
@@ -180,12 +179,16 @@ static void upsample(
 
 static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
 {
+    std::size_t pixels{static_cast<std::size_t>(out.h) * out.w};
     int offset{0};
     for (auto& tensor : ins)
     {
-        int len{static_cast<int>(tensor.count())};
-        std::copy(tensor.data, tensor.data + len, out.data + offset);
-        offset += len;
+        for (std::size_t p{0}; p < pixels; ++p)
+        {
+            const float* src{tensor.data + p * tensor.c};
+            std::copy(src, src + tensor.c, out.data + p * out.c + offset);
+        }
+        offset += tensor.c;
     }
 
     return;
@@ -197,13 +200,6 @@ static float sigmoid(float x)
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-static void apply_sigmoid(float* arr, std::size_t start, int len)
-{
-    for (int i{0}; i < len; ++i)
-    {
-        arr[start + i] = sigmoid(arr[start + i]);
-    }
-}
 
 namespace lithium 
 {
@@ -251,15 +247,17 @@ namespace lithium
     void CPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         std::copy(in.data, in.data + in.count(), out.data);
-        int hw{out.h * out.w};
         int entries{5 + layer.spec.yolo_classes};
+        int used{static_cast<int>(layer.spec.yolo_mask.size()) * entries};
 
-        for (std::size_t i{0}; i < layer.spec.yolo_mask.size(); ++i)
+        for (std::size_t i{0}; i < out.count(); ++i)
         {
-            int base{static_cast<int>(i) * entries * hw};
-
-            apply_sigmoid(out.data, static_cast<std::size_t>(base), 2 * hw);
-            apply_sigmoid(out.data, static_cast<std::size_t>(base + 4 * hw), (entries - 4) * hw);
+            int channel{static_cast<int>(i % static_cast<std::size_t>(out.c))};
+            int slice{channel % entries};
+            if (channel < used && slice != 2 && slice != 3)
+            {
+                out.data[i] = sigmoid(out.data[i]);
+            }
         }
     }
 

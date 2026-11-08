@@ -59,7 +59,7 @@ static void gemm(
 
 
 #ifdef LITHIUM_FP16
-    auto status = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, CUDA_R_16F, patch_len, weights, CUDA_R_16F, patch_len, &beta, out.data, CUDA_R_32F, patches);
+    auto status = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, filters, patches, patch_len, &alpha, weights, CUDA_R_16F, patch_len, in, CUDA_R_16F, patch_len, &beta, out.data, CUDA_R_32F, filters);
     if (status != CUBLAS_STATUS_SUCCESS)
     {
         std::fprintf(stderr, "cublasSgemmEx: %s\n", cublasGetStatusString(status));
@@ -67,7 +67,7 @@ static void gemm(
     }
     
 #else
-    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, patches, filters, patch_len, &alpha, in, patch_len, weights, patch_len, &beta, out.data, patches);
+    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, filters, patches, patch_len, &alpha, weights, patch_len, in, patch_len, &beta, out.data, filters);
     if (status != CUBLAS_STATUS_SUCCESS)
     {
         std::fprintf(stderr, "cublasSgemm: %s\n", cublasGetStatusString(status));
@@ -80,7 +80,7 @@ static void gemm(
 
 __global__ void im2col(const float* in, work_t* out,
                        int out_len, int window,
-                       int stride, int pad, int patch_len, int hi, int wi, int wo)
+                       int stride, int pad, int patch_len, int ci, int hi, int wi, int wo)
 {
         int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
@@ -97,7 +97,7 @@ __global__ void im2col(const float* in, work_t* out,
 
     out[idx] = (ix < 0 || iy < 0 || ix >= wi || iy >= hi)
         ? 0.0f
-        : in[(channel * hi + iy) * wi + ix];
+        : in[(iy * wi + ix) * ci + channel];
 
     return;
 }
@@ -109,11 +109,11 @@ __global__ void upsample(float* in, float* out, int n, int co, int ho, int wo,
     
     if (idx_out >= n) { return; }
     
-    int y = ((idx_out / wo) % ho) / stride;
-    int x = (idx_out % wo) / stride;
-    int c = idx_out / (ho * wo);
+    int c = idx_out % co;
+    int x = ((idx_out / co) % wo) / stride;
+    int y = (idx_out / (co * wo)) / stride;
 
-    int idx_in = wi * (c * hi + y) + x;
+    int idx_in = (y * wi + x) * ci + c;
 
     out[idx_out] = in[idx_in];
     
@@ -128,9 +128,9 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
     if (idx_out >= len_out) { return; }
     float max{-FLT_MAX};
 
-    int y = ((idx_out / wo) % ho) * stride - pad / 2;
-    int x = (idx_out % wo) * stride - pad / 2;
-    int c = idx_out / (ho * wo);
+    int c = idx_out % co;
+    int x = ((idx_out / co) % wo) * stride - pad / 2;
+    int y = (idx_out / (co * wo)) * stride - pad / 2;
     float curr{};
     int idx_in{};
 
@@ -138,7 +138,7 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
     {
         for (int j{0}; j < window; ++j)
         {   
-            idx_in = wi * (c * hi + y + j) + x + i; 
+            idx_in = ((y + j) * wi + x + i) * ci + c;
             curr   = (x + i < 0 || y + j < 0 || x + i >= wi || y + j >= hi) 
                      ? -FLT_MAX
                      : in[idx_in];
@@ -154,15 +154,15 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
 }
 
 
-__global__ void apply_sigmoid(float* arr, int n, int slice_dim, int slices)
+__global__ void apply_sigmoid(float* arr, int n, int channels, int slices, int used)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x; 
     if (idx >= n) { return; }
 
-    int anchor_offset{slice_dim * slices};
-    int slice{(idx % anchor_offset) / slice_dim};
+    int channel{idx % channels};
+    int slice{channel % slices};
 
-    if (slice != 2 && slice != 3)
+    if (channel < used && slice != 2 && slice != 3)
     {
         arr[idx] = 1.0f / (1.0f + exp(-arr[idx]));
     }
@@ -173,16 +173,12 @@ __global__ void apply_sigmoid(float* arr, int n, int slice_dim, int slices)
 
 
 
-static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
+__global__ void concat_slice(const float* in, float* out, int n, int cin, int cout, int offset)
 {
-    int offset{0};
-    for (auto& tensor : ins)
-    {
-        int len{static_cast<int>(tensor.count())};
-        cudaMemcpyAsync(out.data + offset, tensor.data, sizeof(float) * len, cudaMemcpyDefault);
-        offset += len;
-    }
-    return;
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    if (idx >= n) { return; }
+
+    out[(idx / cin) * cout + offset + idx % cin] = in[idx];
 }
 
 
@@ -190,7 +186,7 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
 
 
 
-__global__ void batchnorm(float* out, int n, int hw, 
+__global__ void batchnorm(float* out, int n, int channels, 
                           const float* scale, const float* bias, 
                           const float* mean /* >:( */, const float* variance)
 {
@@ -198,7 +194,7 @@ __global__ void batchnorm(float* out, int n, int hw,
     
     if (idx >= n) { return; }
 
-    int i = idx / hw;
+    int i = idx % channels;
 
     out[idx] = (out[idx] - mean[i]) / sqrtf(variance[i] + 1e-5f);
     out[idx] *= scale[i];
@@ -208,13 +204,13 @@ __global__ void batchnorm(float* out, int n, int hw,
 }
 
 
-__global__ void add_bias(float* out, int n, int hw, const float* bias)
+__global__ void add_bias(float* out, int n, int channels, const float* bias)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
     if (idx >= n) { return; }
 
-    int i = idx / hw;
+    int i = idx % channels;
 
     out[idx] += bias[i];
 }
@@ -258,20 +254,20 @@ namespace lithium
         ::im2col<<<ceil_div(cols, threads), threads>>>(
             in.data, work, cols, window,
             layer.spec.stride, layer.spec.pad, patch_len,
-            in.h, in.w, out.w);
+            in.c, in.h, in.w, out.w);
 
         gemm(work, out, static_cast<const work_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
         
         if (layer.spec.batch_norm)
         {
-            batchnorm<<<blocks, threads>>>(out.data, len, out.h * out.w,
+            batchnorm<<<blocks, threads>>>(out.data, len, out.c,
                 layer.weights.scales.data(), layer.weights.biases.data(),
                 layer.weights.rolling_mean.data(), layer.weights.rolling_variance.data());
             }
             else
             {
-                add_bias<<<blocks, threads>>>(out.data, len, out.h * out.w, layer.weights.biases.data());
+                add_bias<<<blocks, threads>>>(out.data, len, out.c, layer.weights.biases.data());
             }
             switch(layer.spec.activation)
             {
@@ -308,7 +304,15 @@ namespace lithium
         
     void GPUBackend::concat(const std::vector<Tensor>& ins, Tensor& out)
     {
-        ::concat(ins, out);
+        int threads{256};
+        int offset{0};
+        for (const Tensor& tensor : ins)
+        {
+            int len{static_cast<int>(tensor.count())};
+            concat_slice<<<ceil_div(len, threads), threads>>>(tensor.data, out.data, len,
+                                                              tensor.c, out.c, offset);
+            offset += tensor.c;
+        }
     }
     
     void GPUBackend::download(const Tensor& device, float* host)
@@ -319,13 +323,12 @@ namespace lithium
     void GPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         cudaMemcpyAsync(out.data, in.data, sizeof(float) * static_cast<int>(in.count()), cudaMemcpyDefault);
-        int hw{out.h * out.w};
-        
         int len{static_cast<int>(out.count())};
         int threads{256};
         int blocks{ceil_div(len, threads)};
         int entries{5 + layer.spec.yolo_classes};
-        apply_sigmoid<<<blocks, threads>>>(out.data, len, hw, entries);
+        int used{static_cast<int>(layer.spec.yolo_mask.size()) * entries};
+        apply_sigmoid<<<blocks, threads>>>(out.data, len, out.c, entries, used);
         
     }
 

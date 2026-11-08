@@ -128,8 +128,10 @@ namespace lithium
             {
                 const float* row{fitted.data()
                     + (static_cast<std::size_t>(channel) * box.fit_h + y) * box.fit_w};
-                std::copy(row, row + box.fit_w,
-                    out.data + out.index(channel, box.pad_w, y + box.pad_h));
+                for (int x{0}; x < box.fit_w; ++x)
+                {
+                    out.data[out.index(channel, x + box.pad_w, y + box.pad_h)] = row[x];
+                }
             }
         }
 

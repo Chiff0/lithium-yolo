@@ -10,21 +10,21 @@ static lithium::Decoded create(
     int net_w, int net_h, float threshold
 )
 {
-    int hw{in.h * in.w};
     int row{j / in.w}, col{j % in.w};
+    const float* cell{in.data + static_cast<std::size_t>(j) * in.c + base};
 
     lithium::Decoded ret{};
-    ret.x = (static_cast<float>(col) + in.data[base + j]) / static_cast<float>(in.w);
-    ret.y = (static_cast<float>(row) + in.data[base + j + hw]) / static_cast<float>(in.h);
-    ret.w = std::exp(in.data[base + j + 2 * hw]) * anchor.first / static_cast<float>(net_w);
-    ret.h = std::exp(in.data[base + j + 3 * hw]) * anchor.second / static_cast<float>(net_h);
-    ret.objectness = in.data[base + j + 4 * hw];
+    ret.x = (static_cast<float>(col) + cell[0]) / static_cast<float>(in.w);
+    ret.y = (static_cast<float>(row) + cell[1]) / static_cast<float>(in.h);
+    ret.w = std::exp(cell[2]) * anchor.first / static_cast<float>(net_w);
+    ret.h = std::exp(cell[3]) * anchor.second / static_cast<float>(net_h);
+    ret.objectness = cell[4];
 
     ret.probs.reserve(static_cast<std::size_t>(classes));
 
     for (int i{0}; i < classes; ++i)
     {
-        float prob{in.data[base + j + (5 + i) * hw] * ret.objectness};
+        float prob{cell[5 + i] * ret.objectness};
         ret.probs.push_back((prob > threshold) ? prob : 0.0f);
     }
 
@@ -113,11 +113,11 @@ namespace lithium
             for (std::size_t n{0}; n < spec.yolo_mask.size(); ++n)
             {
                 auto anchor{spec.yolo_anchors[static_cast<std::size_t>(spec.yolo_mask[n])]};
-                int base{static_cast<int>(n) * entries * hw};
+                int base{static_cast<int>(n) * entries};
 
                 for (int j{0}; j < hw; ++j)
                 {
-                    if (in.data[base + j + 4 * hw] < threshold)
+                    if (in.data[static_cast<std::size_t>(j) * in.c + base + 4] < threshold)
                     {
                         continue;
                     }

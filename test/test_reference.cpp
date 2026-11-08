@@ -38,6 +38,23 @@ static std::vector<float> load(const std::string& path)
     return file ? data : std::vector<float>{};
 }
 
+static std::vector<float> to_nhwc(const std::vector<float>& nchw, int c, int h, int w)
+{
+    std::vector<float> nhwc(nchw.size());
+    for (int ch{0}; ch < c; ++ch)
+    {
+        for (int y{0}; y < h; ++y)
+        {
+            for (int x{0}; x < w; ++x)
+            {
+                nhwc[(static_cast<std::size_t>(y) * w + x) * c + ch] =
+                    nchw[(static_cast<std::size_t>(ch) * h + y) * w + x];
+            }
+        }
+    }
+    return nhwc;
+}
+
 static const char* type_name(lithium::LayerSpec::LayerType type)
 {
     using LayerType = lithium::LayerSpec::LayerType;
@@ -120,7 +137,9 @@ int main(int argc, char** argv)
 
     // The input has to live on the same resource as the layer outputs, or a real
     // kernel would be reading host memory for the first convolution.
-    std::pmr::vector<float> pixels(loaded.begin(), loaded.end(), resource);
+    const auto input_nhwc = to_nhwc(loaded, network->net.channels,
+                                    network->net.height, network->net.width);
+    std::pmr::vector<float> pixels(input_nhwc.begin(), input_nhwc.end(), resource);
 
     Tensor input{pixels.data(), network->net.channels,
                  network->net.height, network->net.width};
@@ -160,14 +179,15 @@ int main(int argc, char** argv)
             continue;
         }
 
-        const auto want = load(name);
-        if (want.size() != out.count())
+        const auto raw = load(name);
+        if (raw.size() != out.count())
         {
             ++failures;
             std::printf("%4zu  %-9s  reference has %zu floats, layer has %zu\n",
-                        i, type_name(network->layers[i].spec.type), want.size(), out.count());
+                        i, type_name(network->layers[i].spec.type), raw.size(), out.count());
             continue;
         }
+        const auto want = to_nhwc(raw, out.c, out.h, out.w);
 
         float worst{0.0f};
         float scale{0.0f};
