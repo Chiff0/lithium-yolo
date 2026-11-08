@@ -31,9 +31,18 @@ def load(path):
         lines = [l for l in f if not l.startswith("==")]
     kernels = {}
     for row in csv.DictReader(lines):
-        if row.get("Metric Name") != "gpu__time_duration.sum":
+        if not row.get("ID", "").strip().isdigit():
             continue
-        kernels[int(row["ID"])] = (row["Kernel Name"], float(row["Metric Value"]) / 1e6)
+        if "Metric Name" in row:
+            if row["Metric Name"] != "gpu__time_duration.sum":
+                continue
+            ns = row["Metric Value"]
+        else:
+            ns = row.get("gpu__time_duration.sum", "")
+        try:
+            kernels[int(row["ID"])] = (row["Kernel Name"], float(ns.replace(",", "")) / 1e6)
+        except ValueError:
+            continue
     return [kernels[i] for i in sorted(kernels)]
 
 

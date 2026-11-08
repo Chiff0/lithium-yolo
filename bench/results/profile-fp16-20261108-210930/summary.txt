@@ -1,0 +1,59 @@
+one forward pass: 46 kernels, 18.376 ms of GPU time
+
+category                 kernels       ms   share
+im2col                        13   11.178   60.8%
+GEMM (cuBLAS)                 13    4.949   26.9%
+bias + leaky + maxpool         5    1.481    8.1%
+bias + leaky                   8    0.399    2.2%
+route (concat)                 3    0.127    0.7%
+yolo sigmoid                   2    0.118    0.6%
+maxpool                        1    0.064    0.3%
+upsample                       1    0.061    0.3%
+
+kernel sequence
+  0    2.693 ms  im2col                  im2col
+  1    1.341 ms  GEMM (cuBLAS)           Kernel2
+  2    0.712 ms  bias + leaky + maxpool  bias_activate_maxpool
+  3    2.708 ms  im2col                  im2col
+  4    0.601 ms  GEMM (cuBLAS)           Kernel2
+  5    0.366 ms  bias + leaky + maxpool  bias_activate_maxpool
+  6    1.803 ms  im2col                  im2col
+  7    0.325 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_64x128_sliced1x2_ldg8_f2f_stages
+  8    0.195 ms  bias + leaky + maxpool  bias_activate_maxpool
+  9    0.905 ms  im2col                  im2col
+ 10    0.189 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_128x128_ldg8_f2f_stages_32x5_tn
+ 11    0.111 ms  bias + leaky + maxpool  bias_activate_maxpool
+ 12    0.459 ms  im2col                  im2col
+ 13    0.170 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_128x128_ldg8_f2f_stages_32x5_tn
+ 14    0.067 ms  bias + leaky            bias_activate
+ 15    0.064 ms  maxpool                 maxpool
+ 16    0.236 ms  im2col                  im2col
+ 17    0.259 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_64x64_sliced1x2_ldg8_f2f_stages_
+ 18    0.096 ms  bias + leaky + maxpool  bias_activate_maxpool
+ 19    0.456 ms  im2col                  im2col
+ 20    0.763 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_256x128_ldg8_f2f_stages_64x3_tn
+ 21    0.069 ms  bias + leaky            bias_activate
+ 22    0.117 ms  im2col                  im2col
+ 23    0.068 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_128x64_ldg8_f2f_stages_64x4_tn
+ 24    0.031 ms  bias + leaky            bias_activate
+ 25    0.235 ms  im2col                  im2col
+ 26    0.274 ms  GEMM (cuBLAS)           ampere_fp16_s16816gemm_fp16_64x64_sliced1x2_ldg8_f2f_stages_
+ 27    0.043 ms  bias + leaky            bias_activate
+ 28    0.067 ms  im2col                  im2col
+ 29    0.137 ms  GEMM (cuBLAS)           Kernel2
+ 30    0.029 ms  bias + leaky            bias_activate
+ 31    0.033 ms  yolo sigmoid            apply_sigmoid
+ 32    0.028 ms  route (concat)          concat_slice
+ 33    0.042 ms  im2col                  im2col
+ 34    0.055 ms  GEMM (cuBLAS)           Kernel2
+ 35    0.024 ms  bias + leaky            bias_activate
+ 36    0.061 ms  upsample                upsample
+ 37    0.038 ms  route (concat)          concat_slice
+ 38    0.061 ms  route (concat)          concat_slice
+ 39    1.341 ms  im2col                  im2col
+ 40    0.585 ms  GEMM (cuBLAS)           Kernel2
+ 41    0.069 ms  bias + leaky            bias_activate
+ 42    0.117 ms  im2col                  im2col
+ 43    0.181 ms  GEMM (cuBLAS)           Kernel2
+ 44    0.068 ms  bias + leaky            bias_activate
+ 45    0.085 ms  yolo sigmoid            apply_sigmoid

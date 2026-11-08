@@ -26,3 +26,4 @@ engine
 # benchmark tooling
 bench/.venv/
 __pycache__/
+*.ncu-rep
