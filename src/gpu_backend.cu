@@ -199,15 +199,18 @@ __global__ void batchnorm(act_t* out, int n, int channels,
 }
 
 
-__global__ void add_bias(act_t* out, int n, int channels, const float* bias)
+__global__ void bias_activate(act_t* out, int n, int channels, const float* bias, bool leaky)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
     if (idx >= n) { return; }
 
-    int i = idx % channels;
-
-    out[idx] = st(ld(out[idx]) + bias[i]);
+    float v{ld(out[idx]) + bias[idx % channels]};
+    if (leaky && v < 0.0f)
+    {
+        v *= 0.1f;
+    }
+    out[idx] = st(v);
 }
 
 
@@ -255,24 +258,21 @@ namespace lithium
         gemm(work, out, static_cast<const act_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
         
+        const bool leaky{layer.spec.activation == lithium::Activation::Leaky};
+
         if (layer.spec.batch_norm)
         {
             batchnorm<<<blocks, threads>>>(out.data, len, out.c,
                 layer.weights.scales.data(), layer.weights.biases.data(),
                 layer.weights.rolling_mean.data(), layer.weights.rolling_variance.data());
-            }
-            else
+            if (leaky)
             {
-                add_bias<<<blocks, threads>>>(out.data, len, out.c, layer.weights.biases.data());
-            }
-            switch(layer.spec.activation)
-            {
-                case lithium::Activation::Leaky:
                 apply_leaky<<<blocks, threads>>>(out.data, len);
-                break;
-                case lithium::Activation::Linear:
-                break;
+            }
+            return;
         }
+
+        bias_activate<<<blocks, threads>>>(out.data, len, out.c, layer.weights.biases.data(), leaky);
     }
     
     void GPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
