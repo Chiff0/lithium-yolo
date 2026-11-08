@@ -18,6 +18,7 @@ ROOT="$(dirname "$SRC")"
 BUILD="$ROOT/build"
 BIN="$ROOT/bin"
 DARKNET="${DARKNET:-$HOME/darknet-bench}"
+DARKNET_FP16="${DARKNET_FP16:-$HOME/darknet-fp16}"
 TRT_DIR="${LITHIUM_TRT_DIR:-$HOME/trt}"
 CXX="${LITHIUM_CXX:-g++-12}"
 JOBS="${JOBS:-4}"
@@ -53,11 +54,14 @@ for v in $VARIANTS; do
     cp "$BUILD/$v/fps_runner" "$BIN/lithium_$v"
 done
 
-echo "== darknet ($DARKNET)"
-for kind in cpu cuda; do
-    lib="$DARKNET/build-$kind/src-lib"
+echo "== darknet ($DARKNET, $DARKNET_FP16)"
+for spec in "cpu:$DARKNET/build-cpu" "cuda:$DARKNET/build-cuda" "cuda_fp16:$DARKNET_FP16/build-cuda"; do
+    kind="${spec%%:*}"
+    lib="${spec#*:}/src-lib"
+    root="${spec#*:}"
+    root="${root%/build-*}"
     if [ -f "$lib/libdarknet.so" ]; then
-        "$CXX" -O2 -std=c++17 -I"$DARKNET/src-lib" "$SRC/bench/runners/fps_runner_darknet.cpp" \
+        "$CXX" -O2 -std=c++17 -I"$root/src-lib" "$SRC/bench/runners/fps_runner_darknet.cpp" \
             -L"$lib" -ldarknet -Wl,-rpath,"$lib" -o "$BIN/darknet_$kind"
         echo "-- darknet_$kind"
     else

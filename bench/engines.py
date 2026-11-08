@@ -57,6 +57,11 @@ ENGINES = [
         "label": "darknet cuDNN FP32",
         "cmd": [f"{BIN}/darknet_cuda", CFG, WTS, INPUT_BIN], "env": {},
     },
+    {
+        "id": "darknet_cudnn_fp16", "framework": "darknet", "precision": "cuDNN FP16",
+        "label": "darknet cuDNN FP16",
+        "cmd": [f"{BIN}/darknet_cuda_fp16", CFG, WTS, INPUT_BIN], "env": {},
+    },
 ]
 
 for _p in ("fp32", "fp16", "int8"):

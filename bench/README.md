@@ -54,6 +54,7 @@ and `run.sh` stops the live view before it starts.
 | lithium | CPU FP32 | no CUDA |
 | lithium | GPU FP16 (default) / FP32 | im2col + cuBLAS, `LITHIUM_CUDA` (+ `LITHIUM_FP32`) |
 | Darknet | CPU FP32, cuDNN FP32 | hank-ai fork in `~/darknet-bench`, with `CUDNN_HALF` and tensor-op math patched off |
+| Darknet | cuDNN FP16 | the same commit, unpatched, in `~/darknet-fp16`: `CUDNN_HALF` and tensor cores on |
 | TensorRT | FP32 / FP16 / INT8 | `trtexec` plans in `~/trt` from `yolov3-tiny.onnx` |
 
 The engines are defined in `engines.py`, and `jetson_build.sh` builds them on
