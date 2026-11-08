@@ -29,7 +29,7 @@ static std::vector<float> im2col(
                 {
                     arr[counter++] = (x < 0 || y < 0 || x >= input.w || y >= input.h)
                         ? 0.0f
-                        : input.data[input.index(i, x, y)];
+                        : lithium::to_float(input.data[input.index(i, x, y)]);
                 }
             }
         }
@@ -52,7 +52,7 @@ static void gemm(
             {
                 sum += weights[f * patch_len + i] * in[p * patch_len + i];
             }
-            out.data[static_cast<std::size_t>(p) * out.c + f] = sum;
+            out.data[static_cast<std::size_t>(p) * out.c + f] = lithium::to_act(sum);
         }
     }
     return;
@@ -71,9 +71,10 @@ static void batch_normalize(lithium::Tensor& out,
         for (std::size_t j{static_cast<std::size_t>(i)}; j < pixels * channels; j += channels)
         {
             // I do all 3 there, why not 
-            out.data[j] = (out.data[j] - mean) / dev; //normalize
-            out.data[j] *= scale; // scale
-            out.data[j] += bias; // add bias
+            float v{(lithium::to_float(out.data[j]) - mean) / dev}; //normalize
+            v *= scale; // scale
+            v += bias; // add bias
+            out.data[j] = lithium::to_act(v);
             
         }
     }
@@ -93,7 +94,7 @@ static void add_bias(lithium::Tensor& out,
         auto bias{weights.biases[i]};
         for (std::size_t j{static_cast<std::size_t>(i)}; j < pixels * channels; j += channels)
         {
-            out.data[j] += bias;
+            out.data[j] = lithium::to_act(lithium::to_float(out.data[j]) + bias);
         }
     }
 }
@@ -118,7 +119,7 @@ static void apply_activation(lithium::Tensor& out, lithium::Activation activatio
         case lithium::Activation::Leaky:
         for (std::size_t i{0}; i < out.count(); ++i)
         {
-            out.data[i] = leaky(out.data[i]);
+            out.data[i] = lithium::to_act(leaky(lithium::to_float(out.data[i])));
         }
         break;
         case lithium::Activation::Linear:
@@ -148,11 +149,11 @@ static void maxpool(
 
                     float curr{(x < 0 || y < 0 || x >= input.w || y >= input.h)
                         ? -FLT_MAX
-                        : input.data[input.index(i, x, y)]};
+                        : lithium::to_float(input.data[input.index(i, x, y)])};
                     if (curr > hi)
                         hi = curr;
                 }
-                out.data[out.index(i, k, j)] = hi;
+                out.data[out.index(i, k, j)] = lithium::to_act(hi);
             }
         }
     }
@@ -185,7 +186,7 @@ static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out
     {
         for (std::size_t p{0}; p < pixels; ++p)
         {
-            const float* src{tensor.data + p * tensor.c};
+            const lithium::act_t* src{tensor.data + p * tensor.c};
             std::copy(src, src + tensor.c, out.data + p * out.c + offset);
         }
         offset += tensor.c;
@@ -241,7 +242,7 @@ namespace lithium
 
     void CPUBackend::download(const Tensor& device, float* host)
     {
-        std::copy(device.data, device.data + device.count(), host);
+        std::transform(device.data, device.data + device.count(), host, to_float);
     }
 
     void CPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
@@ -256,7 +257,7 @@ namespace lithium
             int slice{channel % entries};
             if (channel < used && slice != 2 && slice != 3)
             {
-                out.data[i] = sigmoid(out.data[i]);
+                out.data[i] = to_act(sigmoid(to_float(out.data[i])));
             }
         }
     }

@@ -11,20 +11,21 @@ static lithium::Decoded create(
 )
 {
     int row{j / in.w}, col{j % in.w};
-    const float* cell{in.data + static_cast<std::size_t>(j) * in.c + base};
+    const lithium::act_t* cell{in.data + static_cast<std::size_t>(j) * in.c + base};
+    auto at = [cell](int k) { return lithium::to_float(cell[k]); };
 
     lithium::Decoded ret{};
-    ret.x = (static_cast<float>(col) + cell[0]) / static_cast<float>(in.w);
-    ret.y = (static_cast<float>(row) + cell[1]) / static_cast<float>(in.h);
-    ret.w = std::exp(cell[2]) * anchor.first / static_cast<float>(net_w);
-    ret.h = std::exp(cell[3]) * anchor.second / static_cast<float>(net_h);
-    ret.objectness = cell[4];
+    ret.x = (static_cast<float>(col) + at(0)) / static_cast<float>(in.w);
+    ret.y = (static_cast<float>(row) + at(1)) / static_cast<float>(in.h);
+    ret.w = std::exp(at(2)) * anchor.first / static_cast<float>(net_w);
+    ret.h = std::exp(at(3)) * anchor.second / static_cast<float>(net_h);
+    ret.objectness = at(4);
 
     ret.probs.reserve(static_cast<std::size_t>(classes));
 
     for (int i{0}; i < classes; ++i)
     {
-        float prob{cell[5 + i] * ret.objectness};
+        float prob{at(5 + i) * ret.objectness};
         ret.probs.push_back((prob > threshold) ? prob : 0.0f);
     }
 
@@ -117,7 +118,7 @@ namespace lithium
 
                 for (int j{0}; j < hw; ++j)
                 {
-                    if (in.data[static_cast<std::size_t>(j) * in.c + base + 4] < threshold)
+                    if (to_float(in.data[static_cast<std::size_t>(j) * in.c + base + 4]) < threshold)
                     {
                         continue;
                     }

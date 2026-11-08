@@ -120,7 +120,7 @@ namespace lithium
         std::vector<float> fitted{}, scratch{};
         resize(planar, w, h, out.c, fitted, box.fit_w, box.fit_h, scratch);
 
-        std::fill(out.data, out.data + out.count(), gray_pixel);
+        std::fill(out.data, out.data + out.count(), to_act(gray_pixel));
 
         for (int channel{0}; channel < out.c; ++channel)
         {
@@ -130,7 +130,7 @@ namespace lithium
                     + (static_cast<std::size_t>(channel) * box.fit_h + y) * box.fit_w};
                 for (int x{0}; x < box.fit_w; ++x)
                 {
-                    out.data[out.index(channel, x + box.pad_w, y + box.pad_h)] = row[x];
+                    out.data[out.index(channel, x + box.pad_w, y + box.pad_h)] = to_act(row[x]);
                 }
             }
         }

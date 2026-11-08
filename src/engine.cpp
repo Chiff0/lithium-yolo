@@ -35,7 +35,7 @@ namespace lithium
         input.h = net_c.height; 
         input.w = net_c.width;
         input.c = net_c.channels; 
-        std::pmr::vector<float> pixels(3 * input.h * input.w, network -> resource);
+        std::pmr::vector<act_t> pixels(3 * input.h * input.w, network -> resource);
         input.data = pixels.data();
 
 

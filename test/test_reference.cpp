@@ -6,6 +6,7 @@
 #include "gpu_backend.hpp"
 #endif
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -139,7 +140,8 @@ int main(int argc, char** argv)
     // kernel would be reading host memory for the first convolution.
     const auto input_nhwc = to_nhwc(loaded, network->net.channels,
                                     network->net.height, network->net.width);
-    std::pmr::vector<float> pixels(input_nhwc.begin(), input_nhwc.end(), resource);
+    std::pmr::vector<act_t> pixels(input_nhwc.size(), resource);
+    std::transform(input_nhwc.begin(), input_nhwc.end(), pixels.begin(), to_act);
 
     Tensor input{pixels.data(), network->net.channels,
                  network->net.height, network->net.width};
@@ -193,7 +195,7 @@ int main(int argc, char** argv)
         float scale{0.0f};
         for (std::size_t k{0}; k < want.size(); ++k)
         {
-            worst = std::fmax(worst, std::fabs(want[k] - out.data[k]));
+            worst = std::fmax(worst, std::fabs(want[k] - to_float(out.data[k])));
             scale = std::fmax(scale, std::fabs(want[k]));
         }
         const float relative{worst / std::fmax(scale, 1e-12f)};

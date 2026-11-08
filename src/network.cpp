@@ -51,7 +51,7 @@ namespace lithium
             return std::unexpected(network_error::size_not_equal);
         }
 
-        Network network{{}, weights.layers.get_allocator().resource(), {}, {}, std::pmr::vector<float>{weights.layers.get_allocator().resource()}};
+        Network network{{}, weights.layers.get_allocator().resource(), {}, {}, std::pmr::vector<act_t>{weights.layers.get_allocator().resource()}};
         network.net = cfg.net; 
         network.layers.reserve(cfg.layers.size());
         network.outputs.reserve(cfg.layers.size());

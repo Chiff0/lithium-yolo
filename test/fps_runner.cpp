@@ -39,7 +39,7 @@ int main(int argc, char** argv)
     input.h = cfg->net.height;
     input.w = cfg->net.width;
     input.c = cfg->net.channels;
-    std::pmr::vector<float> pixels(input.count(), network->resource);
+    std::pmr::vector<lithium::act_t> pixels(input.count(), network->resource);
     input.data = pixels.data();
     if (!lithium::preprocess(argv[3], input)) { std::puts("preprocess"); return 1; }
 

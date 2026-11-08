@@ -86,7 +86,7 @@ int main(int argc, char** argv)
     input.h = cfg->net.height;
     input.w = cfg->net.width;
     input.c = cfg->net.channels;
-    std::pmr::vector<float> pixels(
+    std::pmr::vector<lithium::act_t> pixels(
         static_cast<std::size_t>(input.c) * input.h * input.w, network->resource);
     input.data = pixels.data();
 

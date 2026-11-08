@@ -10,19 +10,7 @@ option(LITHIUM_ASAN       "Address + UB sanitizers, for the test build"         
 option(LITHIUM_FAST_MATH  "Relax IEEE float semantics (-ffast-math)"            OFF)
 
 
-option(LITHIUM_TF32       "Allow TF32 tensor-core math for FP32 GEMMs"          OFF)
-
-
-option(LITHIUM_FP16       "Store the GEMM's inputs as FP16 (FP32 accumulate)"  OFF)
-
-
-if(LITHIUM_FP16 AND LITHIUM_TF32)
-    message(FATAL_ERROR
-        "LITHIUM_FP16 and LITHIUM_TF32 are mutually exclusive. TF32 is a math "
-        "mode for FP32 GEMM inputs; with LITHIUM_FP16 the inputs are __half, "
-        "so the TF32 setting has no effect other than to make the startup "
-        "banner lie about which path is running. Pick one.")
-endif()
+option(LITHIUM_FP32       "Run the CUDA backend in FP32 instead of FP16"        OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -77,11 +65,8 @@ if(LITHIUM_CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     target_sources(lithium_core PRIVATE src/allocator.cpp)
-    if(LITHIUM_TF32)
-        target_compile_definitions(lithium_core PUBLIC LITHIUM_TF32)
-    endif()
-    if(LITHIUM_FP16)
-        target_compile_definitions(lithium_core PUBLIC LITHIUM_FP16)
+    if(NOT LITHIUM_FP32)
+        target_compile_definitions(lithium_core PUBLIC LITHIUM_HALF)
     endif()
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)

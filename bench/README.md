@@ -52,7 +52,7 @@ and `run.sh` stops the live view before it starts.
 | framework | variant | how it is built |
 |---|---|---|
 | lithium | CPU FP32 | no CUDA |
-| lithium | GPU FP32 / TF32 / FP16 | im2col + cuBLAS, `LITHIUM_CUDA` (+ `_TF32` / `_FP16`) |
+| lithium | GPU FP16 (default) / FP32 | im2col + cuBLAS, `LITHIUM_CUDA` (+ `LITHIUM_FP32`) |
 | Darknet | CPU FP32, cuDNN FP32 | hank-ai fork in `~/darknet-bench`, with `CUDNN_HALF` and tensor-op math patched off |
 | TensorRT | FP32 / FP16 / INT8 | `trtexec` plans in `~/trt` from `yolov3-tiny.onnx` |
 
@@ -65,5 +65,5 @@ it to `LITHIUM_VARIANTS` and `ENGINES` there. lithium is driven by
 without calibration data, so its detections are meaningless. Its speed and
 power are real, but it is not accuracy-equivalent to the rest.
 
-Reduced-precision variants fail `test_reference`'s 1e-5 tolerance by design.
-TF32 and FP16 land within about 1% on the YOLO outputs.
+FP16 fails `test_reference`'s 1e-5 tolerance by design and lands within about
+1% on the YOLO outputs; FP32 is the build that must match all 24 layers.

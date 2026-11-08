@@ -9,14 +9,22 @@
 #include <cmath>
 
 
-#ifdef LITHIUM_FP16
-using work_t = __half;
+using act_t = lithium::act_t;
+
+#ifdef LITHIUM_HALF
+static constexpr cudaDataType act_type{CUDA_R_16F};
+
+__device__ inline float ld(act_t v) { return __half2float(v); }
+__device__ inline act_t st(float v) { return __float2half(v); }
 #else
-using work_t = float;
+static constexpr cudaDataType act_type{CUDA_R_32F};
+
+__device__ inline float ld(act_t v) { return v; }
+__device__ inline act_t st(float v) { return v; }
 #endif
 
 
-#ifdef LITHIUM_FP16
+#ifdef LITHIUM_HALF
 static void* upload_as_half(const float* source, std::size_t count)
 {
     std::vector<__half> staging(count);
@@ -50,35 +58,24 @@ static void* upload_as_half(const float* source, std::size_t count)
 
 
 static void gemm(
-                 const work_t* in, lithium::Tensor& out, const work_t* weights, 
+                 const act_t* in, lithium::Tensor& out, const act_t* weights, 
                  int patches, int patch_len, int filters, cublasContext* handle
                 )
 { 
     float alpha{1.0f};
     float beta{};
 
-
-#ifdef LITHIUM_FP16
-    auto status = cublasSgemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, filters, patches, patch_len, &alpha, weights, CUDA_R_16F, patch_len, in, CUDA_R_16F, patch_len, &beta, out.data, CUDA_R_32F, filters);
+    auto status = cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, filters, patches, patch_len, &alpha, weights, act_type, patch_len, in, act_type, patch_len, &beta, out.data, act_type, filters, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT);
     if (status != CUBLAS_STATUS_SUCCESS)
     {
-        std::fprintf(stderr, "cublasSgemmEx: %s\n", cublasGetStatusString(status));
+        std::fprintf(stderr, "cublasGemmEx: %s\n", cublasGetStatusString(status));
         std::abort();
     }
-    
-#else
-    auto status = cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, filters, patches, patch_len, &alpha, weights, patch_len, in, patch_len, &beta, out.data, filters);
-    if (status != CUBLAS_STATUS_SUCCESS)
-    {
-        std::fprintf(stderr, "cublasSgemm: %s\n", cublasGetStatusString(status));
-        std::abort();
-    }
-#endif
 }
 
 
 
-__global__ void im2col(const float* in, work_t* out,
+__global__ void im2col(const act_t* in, act_t* out,
                        int out_len, int window,
                        int stride, int pad, int patch_len, int ci, int hi, int wi, int wo)
 {
@@ -96,13 +93,13 @@ __global__ void im2col(const float* in, work_t* out,
     int ix{pos % window + ox * stride - pad}, iy{pos / window + oy * stride - pad};
 
     out[idx] = (ix < 0 || iy < 0 || ix >= wi || iy >= hi)
-        ? 0.0f
+        ? st(0.0f)
         : in[(iy * wi + ix) * ci + channel];
 
     return;
 }
 
-__global__ void upsample(float* in, float* out, int n, int co, int ho, int wo, 
+__global__ void upsample(const act_t* in, act_t* out, int n, int co, int ho, int wo, 
                          int ci, int hi, int wi, int stride)
 {
     int idx_out = threadIdx.x + blockDim.x * blockIdx.x;
@@ -120,7 +117,7 @@ __global__ void upsample(float* in, float* out, int n, int co, int ho, int wo,
     return;
 }
 
-__global__ void maxpool(float* in, float* out, int window, int stride, int len_out, int pad,
+__global__ void maxpool(const act_t* in, act_t* out, int window, int stride, int len_out, int pad,
                         int co, int ho, int wo, int ci, int hi, int wi)
 {
     int idx_out = threadIdx.x + blockDim.x * blockIdx.x; 
@@ -141,7 +138,7 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
             idx_in = ((y + j) * wi + x + i) * ci + c;
             curr   = (x + i < 0 || y + j < 0 || x + i >= wi || y + j >= hi) 
                      ? -FLT_MAX
-                     : in[idx_in];
+                     : ld(in[idx_in]);
             
             if (max < curr)
             {
@@ -149,12 +146,12 @@ __global__ void maxpool(float* in, float* out, int window, int stride, int len_o
             }
         }
     }
-    out[idx_out] = max;
+    out[idx_out] = st(max);
     return;
 }
 
 
-__global__ void apply_sigmoid(float* arr, int n, int channels, int slices, int used)
+__global__ void apply_sigmoid(act_t* arr, int n, int channels, int slices, int used)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x; 
     if (idx >= n) { return; }
@@ -164,7 +161,7 @@ __global__ void apply_sigmoid(float* arr, int n, int channels, int slices, int u
 
     if (channel < used && slice != 2 && slice != 3)
     {
-        arr[idx] = 1.0f / (1.0f + exp(-arr[idx]));
+        arr[idx] = st(1.0f / (1.0f + expf(-ld(arr[idx]))));
     }
 
     return;
@@ -173,7 +170,7 @@ __global__ void apply_sigmoid(float* arr, int n, int channels, int slices, int u
 
 
 
-__global__ void concat_slice(const float* in, float* out, int n, int cin, int cout, int offset)
+__global__ void concat_slice(const act_t* in, act_t* out, int n, int cin, int cout, int offset)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (idx >= n) { return; }
@@ -186,7 +183,7 @@ __global__ void concat_slice(const float* in, float* out, int n, int cin, int co
 
 
 
-__global__ void batchnorm(float* out, int n, int channels, 
+__global__ void batchnorm(act_t* out, int n, int channels, 
                           const float* scale, const float* bias, 
                           const float* mean /* >:( */, const float* variance)
 {
@@ -196,15 +193,13 @@ __global__ void batchnorm(float* out, int n, int channels,
 
     int i = idx % channels;
 
-    out[idx] = (out[idx] - mean[i]) / sqrtf(variance[i] + 1e-5f);
-    out[idx] *= scale[i];
-    out[idx] += bias[i];
+    out[idx] = st((ld(out[idx]) - mean[i]) / sqrtf(variance[i] + 1e-5f) * scale[i] + bias[i]);
 
     return;
 }
 
 
-__global__ void add_bias(float* out, int n, int channels, const float* bias)
+__global__ void add_bias(act_t* out, int n, int channels, const float* bias)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
@@ -212,18 +207,19 @@ __global__ void add_bias(float* out, int n, int channels, const float* bias)
 
     int i = idx % channels;
 
-    out[idx] += bias[i];
+    out[idx] = st(ld(out[idx]) + bias[i]);
 }
 
 
 
-__global__ void apply_leaky(float* out, int n)
+__global__ void apply_leaky(act_t* out, int n)
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
     if (idx >= n) { return; }
 
-    out[idx] = (out[idx] > 0) ? out[idx] : out[idx] * 0.1f;
+    float v{ld(out[idx])};
+    out[idx] = st((v > 0.0f) ? v : v * 0.1f);
 }
 
 
@@ -249,14 +245,14 @@ namespace lithium
         reserve_workspace(static_cast<std::size_t>(cols));
 
 
-        work_t* work{static_cast<work_t*>(workspace)};
+        act_t* work{static_cast<act_t*>(workspace)};
 
         ::im2col<<<ceil_div(cols, threads), threads>>>(
             in.data, work, cols, window,
             layer.spec.stride, layer.spec.pad, patch_len,
             in.c, in.h, in.w, out.w);
 
-        gemm(work, out, static_cast<const work_t*>(weights_for(layer)),
+        gemm(work, out, static_cast<const act_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
         
         if (layer.spec.batch_norm)
@@ -317,12 +313,12 @@ namespace lithium
     
     void GPUBackend::download(const Tensor& device, float* host)
     {
-        std::copy(device.data, device.data + device.count(), host);
+        std::transform(device.data, device.data + device.count(), host, lithium::to_float);
     }
             
     void GPUBackend::yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        cudaMemcpyAsync(out.data, in.data, sizeof(float) * static_cast<int>(in.count()), cudaMemcpyDefault);
+        cudaMemcpyAsync(out.data, in.data, sizeof(act_t) * in.count(), cudaMemcpyDefault);
         int len{static_cast<int>(out.count())};
         int threads{256};
         int blocks{ceil_div(len, threads)};
@@ -343,7 +339,7 @@ namespace lithium
 
     const void* GPUBackend::weights_for(const NetworkLayer& layer)
     {
-#ifndef LITHIUM_FP16
+#ifndef LITHIUM_HALF
         return layer.weights.weights.data();
 #else
 
@@ -383,7 +379,7 @@ namespace lithium
             cudaFree(workspace);
         }
         
-        const cudaError_t status{cudaMallocManaged(&workspace, floats * sizeof(work_t))};
+        const cudaError_t status{cudaMallocManaged(&workspace, floats * sizeof(act_t))};
         
         if (status != cudaSuccess)
         {
@@ -428,19 +424,10 @@ namespace lithium
             std::abort();
         }
 
-#ifdef LITHIUM_TF32
-        const cublasStatus_t math{cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH)};
-        if (math != CUBLAS_STATUS_SUCCESS)
-        {
-            std::fprintf(stderr, "cublasSetMathMode: %s\n", cublasGetStatusString(math));
-            std::abort();
-        }
-        std::fprintf(stderr, "cublas math: TF32 (10-bit mantissa)\n");
-#elif defined(LITHIUM_FP16)
-        std::fprintf(stderr, "cublas math: FP16 storage, FP32 accumulate "
-                             "(10-bit mantissa, 5-bit exponent)\n");
+#ifdef LITHIUM_HALF
+        std::fprintf(stderr, "activations: FP16, FP32 accumulate\n");
 #else
-        std::fprintf(stderr, "cublas math: FP32\n");
+        std::fprintf(stderr, "activations: FP32\n");
 #endif
     }
 }

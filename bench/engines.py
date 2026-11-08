@@ -26,9 +26,8 @@ TRT_DIR = os.environ.get("LITHIUM_TRT_DIR", f"{HOME}/trt")
 # option lands in CMakeLists.txt and the benchmark and live view pick it up.
 LITHIUM_VARIANTS = {
     "cpu":  [],
-    "fp32": ["LITHIUM_CUDA"],
-    "tf32": ["LITHIUM_CUDA", "LITHIUM_TF32"],
-    "fp16": ["LITHIUM_CUDA", "LITHIUM_FP16"],
+    "fp32": ["LITHIUM_CUDA", "LITHIUM_FP32"],
+    "fp16": ["LITHIUM_CUDA"],
 }
 
 
@@ -47,7 +46,6 @@ def _lith(variant, label, env=None, caveat=""):
 ENGINES = [
     _lith("cpu",  "CPU FP32"),
     _lith("fp32", "GPU FP32"),
-    _lith("tf32", "GPU TF32"),
     _lith("fp16", "GPU FP16"),
     {
         "id": "darknet_cpu", "framework": "darknet", "precision": "CPU FP32",

@@ -23,7 +23,7 @@ namespace lithium
         std::pmr::memory_resource* resource{};   
         std::vector<NetworkLayer> layers{};      
         std::vector<Tensor> outputs{};
-        std::pmr::vector<float> storage{};       
+        std::pmr::vector<act_t> storage{};       
     
         Tensor output(std::size_t layer) const;
     };
