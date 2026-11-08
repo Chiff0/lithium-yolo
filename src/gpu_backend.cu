@@ -155,17 +155,17 @@ __global__ void apply_sigmoid(act_t* arr, int n, int channels, int slices, int u
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x; 
     if (idx >= n) { return; }
-
+    
     int channel{idx % channels};
     int slice{channel % slices};
-
+    
     if (channel < used && slice != 2 && slice != 3)
     {
         arr[idx] = st(1.0f / (1.0f + expf(-ld(arr[idx]))));
     }
-
+    
     return;
-
+    
 }
 
 
@@ -174,7 +174,7 @@ __global__ void concat_slice(const act_t* in, act_t* out, int n, int cin, int co
 {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (idx >= n) { return; }
-
+    
     out[(idx / cin) * cout + offset + idx % cin] = in[idx];
 }
 
@@ -190,11 +190,11 @@ __global__ void batchnorm(act_t* out, int n, int channels,
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
     if (idx >= n) { return; }
-
+    
     int i = idx % channels;
-
+    
     out[idx] = st((ld(out[idx]) - mean[i]) / sqrtf(variance[i] + 1e-5f) * scale[i] + bias[i]);
-
+    
     return;
 }
 
@@ -204,7 +204,7 @@ __global__ void bias_activate(act_t* out, int n, int channels, const float* bias
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     
     if (idx >= n) { return; }
-
+    
     float v{ld(out[idx]) + bias[idx % channels]};
     if (leaky && v < 0.0f)
     {
@@ -213,7 +213,51 @@ __global__ void bias_activate(act_t* out, int n, int channels, const float* bias
     out[idx] = st(v);
 }
 
+__global__ void bias_activate_maxpool(const act_t* in, act_t* out, int window, int stride, int len_out, int pad,
+                                      int co, int ho, int wo, int ci, int hi, int wi, const float* bias, bool leaky)
+{
+    int idx_out = threadIdx.x + blockDim.x * blockIdx.x;
+    
+    
+    if (idx_out >= len_out) { return; }
+    
 
+    // maxpool
+    float max{-FLT_MAX};
+    
+    int c = idx_out % co;
+    int x = ((idx_out / co) % wo) * stride - pad / 2;
+    int y = (idx_out / (co * wo)) * stride - pad / 2;
+    float curr{};
+    int idx_in{};
+    
+    for (int i{0}; i < window; ++i)
+    {
+        for (int j{0}; j < window; ++j)
+        {   
+            idx_in = ((y + j) * wi + x + i) * ci + c;
+            curr   = (x + i < 0 || y + j < 0 || x + i >= wi || y + j >= hi) 
+                    ? -FLT_MAX
+                    : ld(in[idx_in]);
+            
+            if (max < curr)
+            {
+                max = curr;
+            }
+        }
+    }
+    float v{max + bias[c]};
+    if (leaky && v < 0.0f)
+    {
+        v *= 0.1f;
+    }
+    out[idx_out] = st(v);
+
+    return;
+            
+}
+        
+        
 
 __global__ void apply_leaky(act_t* out, int n)
 {
@@ -235,13 +279,11 @@ static int ceil_div(int len, int threads)
 
 namespace lithium 
 {
-    void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
+    void GPUBackend::convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         check_handle();
         
-        int len{static_cast<int>(out.count())};
         int threads{256};
-        int blocks{ceil_div(len, threads)};
         const int window{layer.spec.size};
         const int patch_len{in.c * window * window};
         const int cols{out.h * out.w * patch_len};
@@ -257,7 +299,15 @@ namespace lithium
 
         gemm(work, out, static_cast<const act_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
-        
+    }
+
+    void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
+    {
+        convolve(layer, in, out);
+
+        int len{static_cast<int>(out.count())};
+        int threads{256};
+        int blocks{ceil_div(len, threads)};
         const bool leaky{layer.spec.activation == lithium::Activation::Leaky};
 
         if (layer.spec.batch_norm)
@@ -271,9 +321,30 @@ namespace lithium
             }
             return;
         }
-
         bias_activate<<<blocks, threads>>>(out.data, len, out.c, layer.weights.biases.data(), leaky);
     }
+
+    void GPUBackend::conv_maxpool(const NetworkLayer& conv, const NetworkLayer& pool,
+                                  const Tensor& in, Tensor& conv_out, Tensor& pool_out)
+    {
+        if (conv.spec.batch_norm)
+        {
+            GPUBackend::conv(conv, in, conv_out);
+            GPUBackend::maxpool(pool, conv_out, pool_out);
+            return;
+        }
+
+        convolve(conv, in, conv_out);
+
+        int len{static_cast<int>(pool_out.count())};
+        int threads{256};
+        bias_activate_maxpool<<<ceil_div(len, threads), threads>>>(
+            conv_out.data, pool_out.data, pool.spec.size, pool.spec.stride, len, pool.spec.pad,
+            pool_out.c, pool_out.h, pool_out.w, conv_out.c, conv_out.h, conv_out.w,
+            conv.weights.biases.data(), conv.spec.activation == lithium::Activation::Leaky);
+    }
+
+
     
     void GPUBackend::maxpool(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {

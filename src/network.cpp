@@ -177,7 +177,29 @@ namespace lithium
         return network;
     }
 
-    void forward(Network& network, Backend& backend, const Tensor& input)
+    bool fuses_maxpool(const Network& network, std::size_t layer)
+    {
+        if (layer + 1 >= network.layers.size()
+            || network.layers[layer].spec.type != LayerSpec::LayerType::Conv
+            || network.layers[layer + 1].spec.type != LayerSpec::LayerType::Maxpool)
+        {
+            return false;
+        }
+
+        for (const auto& other : network.layers)
+        {
+            for (int source : other.spec.route_layers)
+            {
+                if (static_cast<std::size_t>(source) == layer)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    void forward(Network& network, Backend& backend, const Tensor& input, bool fuse)
     {
         for (std::size_t i{0}; i < network.layers.size(); ++i)
         {
@@ -188,6 +210,13 @@ namespace lithium
             {
                 case LayerSpec::LayerType::Conv:
                 {
+                    if (fuse && fuses_maxpool(network, i))
+                    {
+                        backend.conv_maxpool(layer, network.layers[i + 1], src,
+                                             network.outputs[i], network.outputs[i + 1]);
+                        ++i;
+                        break;
+                    }
                     backend.conv(layer, src, network.outputs[i]);
                     break;
                 }

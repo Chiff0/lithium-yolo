@@ -230,6 +230,13 @@ namespace lithium
             layer.spec.size, layer.spec.size);
     }
 
+    void CPUBackend::conv_maxpool(const NetworkLayer& conv, const NetworkLayer& pool,
+                                  const Tensor& in, Tensor& conv_out, Tensor& pool_out)
+    {
+        CPUBackend::conv(conv, in, conv_out);
+        CPUBackend::maxpool(pool, conv_out, pool_out);
+    }
+
     void CPUBackend::upsample(const Tensor& in, Tensor& out, int stride)
     {
         ::upsample(in, out, stride);

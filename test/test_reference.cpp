@@ -157,66 +157,89 @@ int main(int argc, char** argv)
         backend = &gpu;
     }
 #endif
-    forward(*network, *backend, input);
-    backend->sync();
+    std::printf("%s   [%s backend]\n", dumps.c_str(), which.c_str());
 
-    std::printf("%s   [%s backend]\n\n", dumps.c_str(), which.c_str());
-    std::puts("layer  type          shape       max|diff|      scale   diff/scale");
-
-    int failures{0};
-    int missing{0};
-    for (std::size_t i{0}; i < network->outputs.size(); ++i)
+    int status{0};
+    for (const bool fuse : {false, true})
     {
-        const Tensor& out = network->outputs[i];
-        char name_buf[512];
-        std::snprintf(name_buf, sizeof(name_buf), "%s/layer_%02zu_c%d_h%d_w%d.bin",
-                      dumps.c_str(), i, out.c, out.h, out.w);
-        const std::string name{name_buf};
+        forward(*network, *backend, input, fuse);
+        backend->sync();
 
-        if (!std::filesystem::exists(name))
+        std::printf("\n%s\n", fuse ? "fused" : "unfused");
+        std::puts("layer  type          shape       max|diff|      scale   diff/scale");
+
+        int failures{0};
+        int missing{0};
+        int skipped{0};
+        for (std::size_t i{0}; i < network->outputs.size(); ++i)
         {
-            ++missing;
-            std::printf("%4zu  %-9s %4dx%3dx%-4d  no reference dump for this shape\n",
-                        i, type_name(network->layers[i].spec.type), out.c, out.h, out.w);
-            continue;
+            const Tensor& out = network->outputs[i];
+            if (fuse && fuses_maxpool(*network, i))
+            {
+                ++skipped;
+                std::printf("%4zu  %-9s %4dx%3dx%-4d  fused into the next layer\n",
+                            i, type_name(network->layers[i].spec.type), out.c, out.h, out.w);
+                continue;
+            }
+
+            char name_buf[512];
+            std::snprintf(name_buf, sizeof(name_buf), "%s/layer_%02zu_c%d_h%d_w%d.bin",
+                          dumps.c_str(), i, out.c, out.h, out.w);
+            const std::string name{name_buf};
+
+            if (!std::filesystem::exists(name))
+            {
+                ++missing;
+                std::printf("%4zu  %-9s %4dx%3dx%-4d  no reference dump for this shape\n",
+                            i, type_name(network->layers[i].spec.type), out.c, out.h, out.w);
+                continue;
+            }
+
+            const auto raw = load(name);
+            if (raw.size() != out.count())
+            {
+                ++failures;
+                std::printf("%4zu  %-9s  reference has %zu floats, layer has %zu\n",
+                            i, type_name(network->layers[i].spec.type), raw.size(), out.count());
+                continue;
+            }
+            const auto want = to_nhwc(raw, out.c, out.h, out.w);
+
+            float worst{0.0f};
+            float scale{0.0f};
+            for (std::size_t k{0}; k < want.size(); ++k)
+            {
+                worst = std::fmax(worst, std::fabs(want[k] - to_float(out.data[k])));
+                scale = std::fmax(scale, std::fabs(want[k]));
+            }
+            const float relative{worst / std::fmax(scale, 1e-12f)};
+            const bool ok{relative < tolerance};
+            if (!ok)
+            {
+                ++failures;
+            }
+
+            std::printf("%4zu  %-9s %4dx%3dx%-4d %10.3g %10.3f   %9.2e  %s\n",
+                        i, type_name(network->layers[i].spec.type), out.c, out.h, out.w,
+                        worst, scale, relative, ok ? "" : "  <-- FAIL");
         }
 
-        const auto raw = load(name);
-        if (raw.size() != out.count())
+        const int checked{static_cast<int>(network->outputs.size()) - skipped};
+        std::printf("\n%s: %d of %d layers match darknet", fuse ? "fused" : "unfused",
+                    checked - failures - missing, checked);
+        if (skipped != 0)
         {
-            ++failures;
-            std::printf("%4zu  %-9s  reference has %zu floats, layer has %zu\n",
-                        i, type_name(network->layers[i].spec.type), raw.size(), out.count());
-            continue;
+            std::printf(", %d fused away", skipped);
         }
-        const auto want = to_nhwc(raw, out.c, out.h, out.w);
-
-        float worst{0.0f};
-        float scale{0.0f};
-        for (std::size_t k{0}; k < want.size(); ++k)
+        if (missing != 0)
         {
-            worst = std::fmax(worst, std::fabs(want[k] - to_float(out.data[k])));
-            scale = std::fmax(scale, std::fabs(want[k]));
+            std::printf(", %d had no reference dump", missing);
         }
-        const float relative{worst / std::fmax(scale, 1e-12f)};
-        const bool ok{relative < tolerance};
-        if (!ok)
+        std::printf("\n");
+        if (failures != 0 || missing != 0)
         {
-            ++failures;
+            status = 1;
         }
-
-        std::printf("%4zu  %-9s %4dx%3dx%-4d %10.3g %10.3f   %9.2e  %s\n",
-                    i, type_name(network->layers[i].spec.type), out.c, out.h, out.w,
-                    worst, scale, relative, ok ? "" : "  <-- FAIL");
     }
-
-    std::printf("\n%d of %zu layers match darknet", 
-                static_cast<int>(network->outputs.size()) - failures - missing,
-                network->outputs.size());
-    if (missing != 0)
-    {
-        std::printf(", %d had no reference dump", missing);
-    }
-    std::printf("\n");
-    return (failures == 0 && missing == 0) ? 0 : 1;
+    return status;
 }
