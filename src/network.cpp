@@ -151,6 +151,29 @@ namespace lithium
             layer.spec.batch_norm = false;
         }
 
+        for (auto& layer : network.layers)
+        {
+            if (layer.spec.type != LayerSpec::LayerType::Conv || layer.weights.weights.empty())
+                continue;
+
+            const std::size_t filters{static_cast<std::size_t>(layer.spec.filters)};
+            const std::size_t window{static_cast<std::size_t>(layer.spec.size) * layer.spec.size};
+            const std::size_t channels{layer.weights.weights.size() / (filters * window)};
+            const std::vector<float> source(layer.weights.weights.begin(), layer.weights.weights.end());
+
+            for (std::size_t f{}; f < filters; ++f)
+            {
+                for (std::size_t c{}; c < channels; ++c)
+                {
+                    for (std::size_t pos{}; pos < window; ++pos)
+                    {
+                        layer.weights.weights[(f * window + pos) * channels + c] =
+                            source[(f * channels + c) * window + pos];
+                    }
+                }
+            }
+        }
+
         return network;
     }
 

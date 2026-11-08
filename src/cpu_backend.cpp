@@ -20,13 +20,13 @@ static std::vector<float> im2col(
     {
         for (int k{0}; k < nx; ++k)
         {
-            for (int i{0}; i < input.c; ++i)
+            for (int pos{0}; pos < h * w; ++pos)
             {
-                for (int pos{0}; pos < h * w; ++pos)
-                {
-                    int x{pos % w + k * stride - pad},
-                        y{pos / w + j * stride - pad};
+                int x{pos % w + k * stride - pad},
+                    y{pos / w + j * stride - pad};
 
+                for (int i{0}; i < input.c; ++i)
+                {
                     arr[counter++] = (x < 0 || y < 0 || x >= input.w || y >= input.h)
                         ? 0.0f
                         : input.data[input.index(i, x, y)];

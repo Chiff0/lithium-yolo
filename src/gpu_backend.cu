@@ -88,9 +88,9 @@ __global__ void im2col(const float* in, work_t* out,
 
     int out_idx{idx / patch_len}; // not the im2col out kernel but the out kernel we would use for naive convolution
 
-    int channel{(idx % patch_len) / (window * window)};
+    int channel{(idx % patch_len) % ci};
 
-    int pos{idx % (window * window)};
+    int pos{(idx % patch_len) / ci};
     int ox{out_idx % wo}, oy{out_idx / wo};
 
     int ix{pos % window + ox * stride - pad}, iy{pos / window + oy * stride - pad};
