@@ -3,6 +3,11 @@
 #include <cmath>
 
 
+static std::size_t aligned(std::size_t count)
+{
+    return (count + 63) / 64 * 64;
+}
+
 static std::pair<int, int> conv_dim(int h, int w, int pad, int size, int stride)
 {
     int new_h = (h + 2 * pad - size) / stride + 1;
@@ -109,7 +114,7 @@ namespace lithium
             }
 
 
-            sum += tensor.count();
+            sum += static_cast<int>(aligned(tensor.count()));
             network.outputs.push_back(tensor);
             prev_h = tensor.h;
             prev_w = tensor.w;
@@ -122,7 +127,7 @@ namespace lithium
         for (Tensor& tensor : network.outputs)
         {
             tensor.data = network.storage.data() + offset;
-            offset += tensor.count();
+            offset += aligned(tensor.count());
         }
 
         if (offset != network.storage.size())

@@ -28,6 +28,7 @@ LITHIUM_VARIANTS = {
     "cpu":  [],
     "fp32": ["LITHIUM_CUDA", "LITHIUM_FP32"],
     "fp16": ["LITHIUM_CUDA"],
+    "fp16_cutlass": ["LITHIUM_CUDA", "LITHIUM_CUTLASS"],
 }
 
 
@@ -47,6 +48,7 @@ ENGINES = [
     _lith("cpu",  "CPU FP32"),
     _lith("fp32", "GPU FP32"),
     _lith("fp16", "GPU FP16"),
+    _lith("fp16_cutlass", "GPU FP16 CUTLASS"),
     {
         "id": "darknet_cpu", "framework": "darknet", "precision": "CPU FP32",
         "label": "darknet CPU FP32",

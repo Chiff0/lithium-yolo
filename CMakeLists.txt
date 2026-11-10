@@ -113,8 +113,15 @@ add_test(NAME reference COMMAND test_reference ${CMAKE_CURRENT_SOURCE_DIR}/refer
 
 option(LITHIUM_CUTLASS "Use CUTLASS implicit GEMM for convolutions" OFF)
 set(CUTLASS_DIR "$ENV{HOME}/cutlass" CACHE PATH "CUTLASS checkout")
+if(LITHIUM_CUTLASS AND LITHIUM_FP32)
+    message(FATAL_ERROR "LITHIUM_CUTLASS runs the FP16 tensor-core kernels; it cannot be combined with LITHIUM_FP32.")
+endif()
 if(LITHIUM_CUTLASS)
     target_include_directories(lithium_core SYSTEM PRIVATE
         ${CUTLASS_DIR}/include ${CUTLASS_DIR}/tools/util/include)
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUTLASS)
+
+    if(LITHIUM_CUDA)
+        target_sources(lithium_core PRIVATE src/cutlass_conv.cu)
+    endif()
 endif()

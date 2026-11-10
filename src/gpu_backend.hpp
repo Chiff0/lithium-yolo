@@ -9,6 +9,11 @@ struct cublasContext;
 
 namespace lithium
 {
+    struct CutlassConvs;
+}
+
+namespace lithium
+{
     struct GPUBackend : Backend
     {
         void conv(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
@@ -35,6 +40,7 @@ namespace lithium
 
         void* workspace{nullptr}; //cast in the actual backend
         cublasContext* handle{nullptr};
+        CutlassConvs* cutlass{nullptr};
         std::size_t workspace_floats{0};
         void reserve_workspace(std::size_t floats);
         void check_handle();

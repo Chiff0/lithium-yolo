@@ -1,4 +1,7 @@
 #include "gpu_backend.hpp"
+#ifdef LITHIUM_CUTLASS
+#include "cutlass_conv.hpp"
+#endif
 #include <cublas_v2.h>
 #include <cuda_fp16.h>
 #include <vector>
@@ -282,6 +285,17 @@ namespace lithium
     void GPUBackend::convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         check_handle();
+
+#ifdef LITHIUM_CUTLASS
+        if (cutlass == nullptr)
+        {
+            cutlass = cutlass_create();
+        }
+        if (cutlass_conv(cutlass, layer, in, out, weights_for(layer)))
+        {
+            return;
+        }
+#endif
         
         int threads{256};
         const int window{layer.spec.size};
@@ -479,6 +493,9 @@ namespace lithium
         {
             cublasDestroy(handle);
         }
+#ifdef LITHIUM_CUTLASS
+        cutlass_destroy(cutlass);
+#endif
     }
 
 
