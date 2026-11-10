@@ -10,6 +10,7 @@
 #   ENGINES=...       comma-separated engine ids
 #   CAPS=0,60,30,15   fps caps, 0 = uncapped
 #   REPEATS=3
+#   STAMP=modes-...   add to an existing result folder (e.g. a mode that needed a reboot)
 #
 # Results land in bench/results/modes-<timestamp>/<mode>/ plus the combined
 # figures in bench/results/modes-<timestamp>/.
@@ -20,7 +21,7 @@ ENGINES="${ENGINES:-lithium_fp16_cutlass,lithium_fp32,darknet_cudnn_fp16,darknet
 CAPS="${CAPS:-0,60,30,15}"
 REPEATS="${REPEATS:-3}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-STAMP="modes-$(ssh "$JETSON" date +%Y%m%d-%H%M%S)"
+STAMP="${STAMP:-modes-$(ssh "$JETSON" date +%Y%m%d-%H%M%S)}"
 COMMIT="$(git -C "$HERE/.." rev-parse --short HEAD)$(git -C "$HERE/.." diff --quiet -- src test CMakeLists.txt || echo -dirty)"
 
 "$HERE/sync.sh" > /dev/null

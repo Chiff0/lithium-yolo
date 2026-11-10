@@ -43,7 +43,7 @@ def gpu_temp():
 
 def other_gpu_work():
     """Anything that would share the GPU with the measurement."""
-    out = subprocess.run(["pgrep", "-af", "runner_|lithium_|darknet_c|trt_runner|trtexec|dash.py"],
+    out = subprocess.run(["pgrep", "-af", r"lithium-bench/bin/|dash/runner_|trtexec|dash\.py"],
                          capture_output=True, text=True).stdout
     me = str(os.getpid())
     return [l for l in out.splitlines() if l and not l.startswith(me + " ") and "pgrep" not in l]
