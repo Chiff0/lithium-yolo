@@ -20,6 +20,8 @@ CATEGORIES = [
 
 
 def category(name):
+    if name == "Kernel":
+        return "conv (CUTLASS)"
     for key, label in CATEGORIES:
         if key in name:
             return label

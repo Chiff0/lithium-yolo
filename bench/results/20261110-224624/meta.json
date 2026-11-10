@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-10T22:46:36",
+  "host": "chiff0-desktop",
+  "power_mode": "15W",
+  "caps": [
+    0,
+    30
+  ],
+  "window_s": 15.0,
+  "settle_s": 5.0,
+  "repeats": 3,
+  "hwmon": "/sys/bus/i2c/drivers/ina3221/1-0040/hwmon/hwmon1",
+  "missing": [],
+  "l4t": "# R36 (release), REVISION: 4.2, GCID: 38685322, BOARD: generic, EABI: aarch64, DATE: Fri Dec 13 00:16:27 UTC 2024",
+  "idle": {
+    "vdd_in": 4.947224884154502,
+    "vdd_cpu_gpu_cv": 0.5921801544607206,
+    "vdd_soc": 1.4776319999999996,
+    "gpu_mhz": 306.0,
+    "samples": 751
+  }
+}
