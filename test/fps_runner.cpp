@@ -38,10 +38,10 @@ int main(int argc, char** argv)
     lithium::Tensor input{};
     input.h = cfg->net.height;
     input.w = cfg->net.width;
-    input.c = cfg->net.channels;
+    input.c = network->net.channels;
     std::pmr::vector<lithium::act_t> pixels(input.count(), network->resource);
     input.data = pixels.data();
-    if (!lithium::preprocess(argv[3], input)) { std::puts("preprocess"); return 1; }
+    if (!lithium::preprocess(argv[3], input, network->image_channels)) { std::puts("preprocess"); return 1; }
 
     lithium::CPUBackend cpu{};
 #ifdef LITHIUM_CUDA

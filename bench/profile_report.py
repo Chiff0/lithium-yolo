@@ -50,12 +50,12 @@ def load(path):
 
 def main():
     kernels = load(sys.argv[1])
-    starts = [i for i, (name, _) in enumerate(kernels) if "im2col" in name]
-    per_pass = len(starts) // 2
-    if per_pass == 0:
-        print("no im2col kernels found; is this a lithium profile?")
+    names = [name for name, _ in kernels]
+    n = next((n for n in range(len(names) // 2, 0, -1) if names[-n:] == names[-2 * n:-n]), 0)
+    if n == 0:
+        print("could not find two identical forward passes in this profile")
         return 1
-    one = kernels[starts[per_pass]:]
+    one = kernels[-n:]
 
     total = sum(ms for _, ms in one)
     by_cat = defaultdict(float)

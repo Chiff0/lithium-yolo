@@ -20,5 +20,5 @@ namespace lithium
         int image_h{};
     };
 
-    std::expected<Loaded, preprocess_error> preprocess(std::string_view path, Tensor& out);
+    std::expected<Loaded, preprocess_error> preprocess(std::string_view path, Tensor& out, int channels);
 }

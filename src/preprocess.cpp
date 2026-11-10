@@ -98,31 +98,41 @@ static void resize(const std::vector<float>& src, int src_w, int src_h, int c,
 
 namespace lithium
 {
-    std::expected<Loaded, preprocess_error> preprocess(std::string_view path, Tensor& out)
+    std::expected<Loaded, preprocess_error> preprocess(std::string_view path, Tensor& out, int channels)
     {
-        if (out.data == nullptr || out.c <= 0 || out.h <= 0 || out.w <= 0)
+        if (out.data == nullptr || channels <= 0 || channels > out.c || out.h <= 0 || out.w <= 0)
         {
             return std::unexpected(preprocess_error::invalid_output);
         }
 
-        int w{}, h{}, channels{};
-        unsigned char* pixels{stbi_load(std::string(path).c_str(), &w, &h, &channels, out.c)};
+        int w{}, h{}, file_channels{};
+        unsigned char* pixels{stbi_load(std::string(path).c_str(), &w, &h, &file_channels, channels)};
         if (pixels == nullptr)
         {
             return std::unexpected(preprocess_error::file_input_error);
         }
 
-        std::vector<float> planar{to_planar(pixels, w, h, out.c)};
+        std::vector<float> planar{to_planar(pixels, w, h, channels)};
         stbi_image_free(pixels);
 
         Letterbox box{letterbox_fit(w, h, out.w, out.h)};
 
         std::vector<float> fitted{}, scratch{};
-        resize(planar, w, h, out.c, fitted, box.fit_w, box.fit_h, scratch);
+        resize(planar, w, h, channels, fitted, box.fit_w, box.fit_h, scratch);
 
-        std::fill(out.data, out.data + out.count(), to_act(gray_pixel));
+        std::fill(out.data, out.data + out.count(), to_act(0.0f));
+        for (int y{0}; y < out.h; ++y)
+        {
+            for (int x{0}; x < out.w; ++x)
+            {
+                for (int channel{0}; channel < channels; ++channel)
+                {
+                    out.data[out.index(channel, x, y)] = to_act(gray_pixel);
+                }
+            }
+        }
 
-        for (int channel{0}; channel < out.c; ++channel)
+        for (int channel{0}; channel < channels; ++channel)
         {
             for (int y{0}; y < box.fit_h; ++y)
             {

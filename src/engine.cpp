@@ -34,12 +34,12 @@ namespace lithium
         auto net_c{(*parsed_cfg).net};
         input.h = net_c.height; 
         input.w = net_c.width;
-        input.c = net_c.channels; 
-        std::pmr::vector<act_t> pixels(3 * input.h * input.w, network -> resource);
+        input.c = network->net.channels; 
+        std::pmr::vector<act_t> pixels(input.count(), network -> resource);
         input.data = pixels.data();
 
 
-        auto loaded{preprocess(static_cast<std::string_view>(argv[3]), input)};
+        auto loaded{preprocess(static_cast<std::string_view>(argv[3]), input, network->image_channels)};
         if (!loaded)
         {
             std::cout<< "Error while preprocessing";

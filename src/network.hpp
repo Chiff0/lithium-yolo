@@ -24,6 +24,7 @@ namespace lithium
         std::vector<NetworkLayer> layers{};      
         std::vector<Tensor> outputs{};
         std::pmr::vector<act_t> storage{};       
+        int image_channels{};
     
         Tensor output(std::size_t layer) const;
     };

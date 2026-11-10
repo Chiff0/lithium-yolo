@@ -85,12 +85,12 @@ int main(int argc, char** argv)
     lithium::Tensor input{};
     input.h = cfg->net.height;
     input.w = cfg->net.width;
-    input.c = cfg->net.channels;
+    input.c = network->net.channels;
     std::pmr::vector<lithium::act_t> pixels(
         static_cast<std::size_t>(input.c) * input.h * input.w, network->resource);
     input.data = pixels.data();
 
-    auto loaded{lithium::preprocess(argv[3], input)};
+    auto loaded{lithium::preprocess(argv[3], input, network->image_channels)};
     if (!loaded)
     {
         std::puts("failed to preprocess image");

@@ -3,6 +3,12 @@
 #include <cmath>
 
 
+#ifdef LITHIUM_CUTLASS
+static constexpr int input_channel_multiple{8};
+#else
+static constexpr int input_channel_multiple{1};
+#endif
+
 static std::size_t aligned(std::size_t count)
 {
     return (count + 63) / 64 * 64;
@@ -58,9 +64,12 @@ namespace lithium
 
         Network network{{}, weights.layers.get_allocator().resource(), {}, {}, std::pmr::vector<act_t>{weights.layers.get_allocator().resource()}};
         network.net = cfg.net; 
+        network.image_channels = cfg.net.channels;
+        network.net.channels = (cfg.net.channels + input_channel_multiple - 1)
+                             / input_channel_multiple * input_channel_multiple;
         network.layers.reserve(cfg.layers.size());
         network.outputs.reserve(cfg.layers.size());
-        int prev_h{cfg.net.height}, prev_w{cfg.net.width}, prev_c{cfg.net.channels};
+        int prev_h{cfg.net.height}, prev_w{cfg.net.width}, prev_c{network.net.channels};
         int sum{0};
         for (std::size_t i{0}; i < cfg.layers.size(); ++i)
         {
@@ -177,6 +186,25 @@ namespace lithium
                     }
                 }
             }
+        }
+
+        if (network.net.channels != network.image_channels && !network.layers.empty()
+            && network.layers.front().spec.type == LayerSpec::LayerType::Conv)
+        {
+            auto& weights{network.layers.front().weights.weights};
+            const std::size_t from{static_cast<std::size_t>(network.image_channels)};
+            const std::size_t to{static_cast<std::size_t>(network.net.channels)};
+            const std::size_t groups{weights.size() / from};
+
+            std::pmr::vector<float> padded(groups * to, 0.0f, weights.get_allocator());
+            for (std::size_t g{}; g < groups; ++g)
+            {
+                for (std::size_t c{}; c < from; ++c)
+                {
+                    padded[g * to + c] = weights[g * from + c];
+                }
+            }
+            weights = std::move(padded);
         }
 
         return network;

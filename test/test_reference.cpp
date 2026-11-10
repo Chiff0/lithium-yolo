@@ -127,7 +127,7 @@ int main(int argc, char** argv)
     }
 
     const auto loaded = load(dumps + "/input_c3_h416_w416.bin");
-    const auto expected = static_cast<std::size_t>(network->net.channels)
+    const auto expected = static_cast<std::size_t>(network->image_channels)
                         * network->net.height * network->net.width;
     if (loaded.size() != expected)
     {
@@ -138,10 +138,18 @@ int main(int argc, char** argv)
 
     // The input has to live on the same resource as the layer outputs, or a real
     // kernel would be reading host memory for the first convolution.
-    const auto input_nhwc = to_nhwc(loaded, network->net.channels,
+    const auto input_nhwc = to_nhwc(loaded, network->image_channels,
                                     network->net.height, network->net.width);
-    std::pmr::vector<act_t> pixels(input_nhwc.size(), resource);
-    std::transform(input_nhwc.begin(), input_nhwc.end(), pixels.begin(), to_act);
+    const std::size_t image_c{static_cast<std::size_t>(network->image_channels)};
+    const std::size_t padded_c{static_cast<std::size_t>(network->net.channels)};
+    std::pmr::vector<act_t> pixels(input_nhwc.size() / image_c * padded_c, to_act(0.0f), resource);
+    for (std::size_t p{0}; p < input_nhwc.size() / image_c; ++p)
+    {
+        for (std::size_t c{0}; c < image_c; ++c)
+        {
+            pixels[p * padded_c + c] = to_act(input_nhwc[p * image_c + c]);
+        }
+    }
 
     Tensor input{pixels.data(), network->net.channels,
                  network->net.height, network->net.width};
