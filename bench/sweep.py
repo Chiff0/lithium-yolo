@@ -74,7 +74,9 @@ def run_case(sampler, engine, cap, settle, window, series, tag):
         time.sleep(settle)
         t0 = time.monotonic()
         temp0 = gpu_temp()
+        rpm0, pwm0 = common.fan()
         time.sleep(window)
+        rpm1, pwm1 = common.fan()
         if not runner.alive():
             return None, runner.failure()
         rows = sampler.since(t0)
@@ -99,6 +101,8 @@ def run_case(sampler, engine, cap, settle, window, series, tag):
         "gpu_load": common.mean(r[5] for r in rows),
         "gpu_temp_start": temp0,
         "gpu_temp_end": temp1,
+        "fan_rpm": common.mean([rpm0, rpm1]),
+        "fan_pwm": common.mean([pwm0, pwm1]),
         "samples": len(rows),
     }, ""
 
@@ -115,6 +119,7 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--skip", default="")
     ap.add_argument("--force", action="store_true", help="run even if other GPU work is found")
+    ap.add_argument("--commit", default="", help="git revision of the code being measured")
     a = ap.parse_args()
 
     # run_case stops its runner in a finally; make hangup/terminate reach it
@@ -155,6 +160,8 @@ def main():
         "caps": caps, "window_s": a.window, "settle_s": a.settle, "repeats": a.repeats,
         "hwmon": common.HWMON,
         "missing": missing,
+        "commit": a.commit,
+        "fan_at_start": dict(zip(("rpm", "pwm"), common.fan())),
     }
     try:
         with open("/etc/nv_tegra_release") as f:
@@ -169,7 +176,7 @@ def main():
 
     fields = ["engine", "framework", "precision", "label", "caveat", "cap", "repeat",
               "fps", "ms", "duty", "vdd_in", "vdd_cpu_gpu_cv", "vdd_soc",
-              "gpu_mhz", "gpu_load", "gpu_temp_start", "gpu_temp_end",
+              "gpu_mhz", "gpu_load", "gpu_temp_start", "gpu_temp_end", "fan_rpm", "fan_pwm",
               "j_per_frame", "j_per_frame_marginal", "compute_j_per_frame", "samples", "error"]
     results = []
     series = []

@@ -21,6 +21,21 @@ HWMON = _find("/sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*")
 GPU_FREQ = _find("/sys/class/devfreq/17000000.gpu/cur_freq")
 GPU_LOAD = _find("/sys/devices/platform/*/17000000.gpu/load") or _find("/sys/devices/platform/17000000.gpu/load")
 
+
+def _hwmon(name):
+    for d in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+        try:
+            with open(f"{d}/name") as f:
+                if f.read().strip() == name:
+                    return d
+        except Exception:
+            continue
+    return None
+
+
+FAN_TACH = _hwmon("pwm_tach")
+FAN_PWM = _hwmon("pwmfan")
+
 RAILS = ("VDD_IN", "VDD_CPU_GPU_CV", "VDD_SOC")
 
 
@@ -54,6 +69,20 @@ def gpu_load():
         return int(_read(GPU_LOAD)) / 1000.0
     except Exception:
         return None
+
+
+def fan():
+    """(rpm, pwm 0-255) of the cooling fan, None where unreadable."""
+    rpm = pwm = None
+    try:
+        rpm = int(_read(f"{FAN_TACH}/rpm"))
+    except Exception:
+        pass
+    try:
+        pwm = int(_read(f"{FAN_PWM}/pwm1"))
+    except Exception:
+        pass
+    return rpm, pwm
 
 
 def power_mode():

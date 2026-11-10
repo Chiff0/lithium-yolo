@@ -19,7 +19,8 @@ fi
 # the old ~/dash/dash.py or a live view would share the GPU with the sweep
 ssh "$JETSON" 'pkill -f "lithium-bench/src/bench/[d]ash.py" || true; pkill -f "dash/[d]ash.py" || true; sleep 1'
 
-ssh -t "$JETSON" "python3 ~/lithium-bench/src/bench/sweep.py --out ~/lithium-bench/results/$STAMP $*"
+COMMIT="$(git -C "$HERE/.." rev-parse --short HEAD)$(git -C "$HERE/.." diff --quiet -- src test CMakeLists.txt || echo -dirty)"
+ssh -t "$JETSON" "python3 ~/lithium-bench/src/bench/sweep.py --out ~/lithium-bench/results/$STAMP --commit $COMMIT $*"
 
 mkdir -p "$OUT"
 scp -q "$JETSON:lithium-bench/results/$STAMP/*" "$OUT/"
