@@ -103,15 +103,15 @@ __global__ void im2col(const act_t* in, act_t* out,
 }
 
 
-__global__ void layer_0_conv(const act_t* in, act_t* out, const act_t* w, const float* bias, int H, int W, int C)
+__global__ void layer_0_conv(const act_t* in, act_t* out, const act_t* w, const float* bias, int H, int W)
 {
     /*
     Magic numbers:
-    c = 3 (RGB)
-    output h, w = 208, 208
-    f = 16 (always 16 filters in first layer)
-    3 (3x3 conv kernel)
+    C = 3 (RGB)
+    16 filters in the first layer
+    3x3 conv kernel, stride 1, pad 1
     */
+    constexpr int C{3};
 
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
@@ -143,7 +143,7 @@ __global__ void layer_0_conv(const act_t* in, act_t* out, const act_t* w, const 
             if (ix < 0 || ix >= W) 
                 continue;
             
-            
+            #pragma unroll
             for (int c{}; c < C; ++c)
             {
                 float t{ld(in[(iy * W + ix) * C + c])};
@@ -154,12 +154,83 @@ __global__ void layer_0_conv(const act_t* in, act_t* out, const act_t* w, const 
         }
     }
 
-    // then do stuff with acc
     #pragma unroll
     for (int k{}; k < 16; ++k)
         out[(y * W + x) * 16 + k] = st(acc[k] < 0.0f ? 0.1f * acc[k] : acc[k]);
-    
 }
+
+__global__ void layer_0_conv_maxpool(const act_t* in, act_t* out, const act_t* w, const float* bias, int H, int W)
+{
+    /*
+    Magic numbers:
+    C = 3 (RGB)
+    16 filters in the first layer
+    3x3 conv kernel, stride 1, pad 1
+    2x2 maxpool, stride 2, so the output is H/2 x W/2
+    H, W are the conv (input) dimensions
+    */
+    constexpr int C{3};
+
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    if (idx >= (H / 2) * (W / 2))
+        return;
+
+    int px{idx % (W / 2)}, py{idx / (W / 2)};
+    int x{px * 2}, y{py * 2}; // top left conv pixel of the 2x2 pool window
+
+    float acc1[16]{}, acc2[16]{}, acc3[16]{}, acc4[16]{};
+
+    #pragma unroll
+    for (int r{}; r < 3; ++r)
+    {
+        int iy1{y + r - 1};
+        int iy2{iy1 + 1}; // window of the conv pixel one row down
+
+        bool y1ok{iy1 >= 0 && iy1 < H}, y2ok{iy2 >= 0 && iy2 < H};
+
+        #pragma unroll
+        for (int s{}; s < 3; ++s)
+        {
+            int ix1{x + s - 1};
+            int ix2{ix1 + 1}; // window of the conv pixel one column right
+
+            bool x1ok{ix1 >= 0 && ix1 < W}, x2ok{ix2 >= 0 && ix2 < W};
+
+            #pragma unroll
+            for (int c{}; c < C; ++c)
+            {
+                float t1{(y1ok && x1ok) ? ld(in[(iy1 * W + ix1) * C + c]) : 0.0f};
+                float t2{(y1ok && x2ok) ? ld(in[(iy1 * W + ix2) * C + c]) : 0.0f};
+                float t3{(y2ok && x1ok) ? ld(in[(iy2 * W + ix1) * C + c]) : 0.0f};
+                float t4{(y2ok && x2ok) ? ld(in[(iy2 * W + ix2) * C + c]) : 0.0f};
+
+                #pragma unroll
+                for (int k{}; k < 16; ++k)
+                {
+                    float wk{ld(w[((k * 3 + r) * 3 + s) * C + c])};
+                    acc1[k] += t1 * wk;
+                    acc2[k] += t2 * wk;
+                    acc3[k] += t3 * wk;
+                    acc4[k] += t4 * wk;
+                }
+            }
+        }
+    }
+
+    // bias is the same for all 4, so it can be added after the max
+    #pragma unroll
+    for (int k{}; k < 16; ++k)
+    {
+        float hi{acc1[k]};
+        hi = fmaxf(hi, acc2[k]);
+        hi = fmaxf(hi, acc3[k]);
+        hi = fmaxf(hi, acc4[k]);
+        hi += bias[k];
+        out[(py * (W / 2) + px) * 16 + k] = st(hi < 0.0f ? 0.1f * hi : hi);
+    }
+}
+
 __global__ void upsample(const act_t* in, act_t* out, int n, int co, int ho, int wo, 
                          int ci, int hi, int wi, int stride)
 {
@@ -337,6 +408,13 @@ static int ceil_div(int len, int threads)
     return (len + threads - 1) / threads;
 }
 
+static bool is_layer_0(const lithium::NetworkLayer& layer, const lithium::Tensor& in, const lithium::Tensor& out)
+{
+    return !layer.spec.batch_norm && in.c == 3 && out.c == 16 && layer.spec.size == 3
+        && layer.spec.stride == 1 && layer.spec.pad == 1 && in.h == out.h && in.w == out.w
+        && layer.spec.activation == lithium::Activation::Leaky;
+}
+
 
 namespace lithium 
 {
@@ -375,14 +453,12 @@ namespace lithium
 
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
-        if (!layer.spec.batch_norm && in.c <= 8 && out.c == 16 && layer.spec.size == 3
-            && layer.spec.stride == 1 && layer.spec.pad == 1
-            && layer.spec.activation == lithium::Activation::Leaky)
+        if (is_layer_0(layer, in, out))
         {
             int threads{256};
             layer_0_conv<<<ceil_div(out.h * out.w, threads), threads>>>(
                 in.data, out.data, static_cast<const act_t*>(weights_for(layer)),
-                layer.weights.biases.data(), out.h, out.w, in.c);
+                layer.weights.biases.data(), out.h, out.w);
             return;
         }
 
@@ -414,6 +490,16 @@ namespace lithium
         {
             GPUBackend::conv(conv, in, conv_out);
             GPUBackend::maxpool(pool, conv_out, pool_out);
+            return;
+        }
+
+        if (is_layer_0(conv, in, conv_out) && pool.spec.size == 2 && pool.spec.stride == 2
+            && conv_out.h % 2 == 0 && conv_out.w % 2 == 0)
+        {
+            int threads{256};
+            layer_0_conv_maxpool<<<ceil_div(pool_out.h * pool_out.w, threads), threads>>>(
+                in.data, pool_out.data, static_cast<const act_t*>(weights_for(conv)),
+                conv.weights.biases.data(), conv_out.h, conv_out.w);
             return;
         }
 
