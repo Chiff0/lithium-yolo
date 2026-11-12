@@ -82,7 +82,7 @@ __global__ void im2col(const act_t* in, act_t* out,
                        int out_len, int window,
                        int stride, int pad, int patch_len, int ci, int hi, int wi, int wo)
 {
-        int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
     if (idx >= out_len) { return; }
 
@@ -102,6 +102,64 @@ __global__ void im2col(const act_t* in, act_t* out,
     return;
 }
 
+
+__global__ void layer_0_conv(const act_t* in, act_t* out, const act_t* w, const float* bias, int H, int W, int C)
+{
+    /*
+    Magic numbers:
+    c = 3 (RGB)
+    output h, w = 208, 208
+    f = 16 (always 16 filters in first layer)
+    3 (3x3 conv kernel)
+    */
+
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    if (idx >= H * W)
+        return;
+
+    int x{idx % W}, y{idx / W};
+
+    float acc[16]{};
+
+    #pragma unroll
+    for (int k{}; k < 16; ++k)
+        acc[k] = bias[k];
+    
+
+    #pragma unroll
+    for (int r{}; r < 3; ++r)
+    {
+        int iy{y + r - 1};
+
+        if (iy < 0 || iy >= H) 
+            continue;
+
+        #pragma unroll
+        for (int s{}; s < 3; ++s)
+        {
+            int ix{x + s - 1};
+
+            if (ix < 0 || ix >= W) 
+                continue;
+            
+            
+            for (int c{}; c < C; ++c)
+            {
+                float t{ld(in[(iy * W + ix) * C + c])};
+                #pragma unroll
+                for (int k{}; k < 16; ++k)
+                    acc[k] += t * ld(w[((k * 3 + r) * 3 + s) * C + c]);
+            }
+        }
+    }
+
+    // then do stuff with acc
+    #pragma unroll
+    for (int k{}; k < 16; ++k)
+        out[(y * W + x) * 16 + k] = st(acc[k] < 0.0f ? 0.1f * acc[k] : acc[k]);
+    
+}
 __global__ void upsample(const act_t* in, act_t* out, int n, int co, int ho, int wo, 
                          int ci, int hi, int wi, int stride)
 {
@@ -317,6 +375,17 @@ namespace lithium
 
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
+        if (!layer.spec.batch_norm && in.c <= 8 && out.c == 16 && layer.spec.size == 3
+            && layer.spec.stride == 1 && layer.spec.pad == 1
+            && layer.spec.activation == lithium::Activation::Leaky)
+        {
+            int threads{256};
+            layer_0_conv<<<ceil_div(out.h * out.w, threads), threads>>>(
+                in.data, out.data, static_cast<const act_t*>(weights_for(layer)),
+                layer.weights.biases.data(), out.h, out.w, in.c);
+            return;
+        }
+
         convolve(layer, in, out);
 
         int len{static_cast<int>(out.count())};
