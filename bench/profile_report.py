@@ -7,6 +7,7 @@ import sys
 from collections import defaultdict
 
 CATEGORIES = [
+    ("layer_0_conv", "layer 0 (direct conv)"),
     ("im2col", "im2col"),
     ("bias_activate_maxpool", "bias + leaky + maxpool"),
     ("bias_activate", "bias + leaky"),
@@ -52,6 +53,10 @@ def main():
     kernels = load(sys.argv[1])
     names = [name for name, _ in kernels]
     n = next((n for n in range(len(names) // 2, 0, -1) if names[-n:] == names[-2 * n:-n]), 0)
+    if n == 0 and names and names.count(names[0]) > 1:
+        # the first pass also runs the autotuner's candidates, so the passes
+        # differ; every pass starts with the same kernel, so take the last one
+        n = len(names) - max(i for i, name in enumerate(names) if name == names[0])
     if n == 0:
         print("could not find two identical forward passes in this profile")
         return 1

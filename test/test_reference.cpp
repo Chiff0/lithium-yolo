@@ -4,6 +4,8 @@
 #ifdef LITHIUM_CUDA
 #include "allocator.hpp"
 #include "gpu_backend.hpp"
+
+#include <cuda_runtime_api.h>
 #endif
 
 #include <algorithm>
@@ -92,16 +94,19 @@ int main(int argc, char** argv)
     }
 #endif
 
-    // Declared before the network so it is destroyed after it: storage calls
-    // do_deallocate through this pointer on the way out.
-#ifdef LITHIUM_CUDA
-    cuda_resource managed{};
-#endif
+    // Declared before the network so they are destroyed after it: storage calls
+    // do_deallocate through these pointers on the way out. On the gpu backend the
+    // layer outputs live in device memory and the input in pinned host memory.
     std::pmr::memory_resource* resource{std::pmr::get_default_resource()};
+    std::pmr::memory_resource* activations{nullptr};
+    std::pmr::memory_resource* staging{resource};
 #ifdef LITHIUM_CUDA
+    device_resource device{};
+    pinned_resource pinned{};
     if (which == "gpu")
     {
-        resource = &managed;
+        activations = &device;
+        staging = &pinned;
     }
 #endif
 
@@ -119,7 +124,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    auto network = build_network(*cfg, std::move(*parsed));
+    auto network = build_network(*cfg, std::move(*parsed), activations);
     if (!network)
     {
         std::puts("build_network failed");
@@ -136,13 +141,11 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    // The input has to live on the same resource as the layer outputs, or a real
-    // kernel would be reading host memory for the first convolution.
     const auto input_nhwc = to_nhwc(loaded, network->image_channels,
                                     network->net.height, network->net.width);
     const std::size_t image_c{static_cast<std::size_t>(network->image_channels)};
     const std::size_t padded_c{static_cast<std::size_t>(network->net.channels)};
-    std::pmr::vector<act_t> pixels(input_nhwc.size() / image_c * padded_c, to_act(0.0f), resource);
+    std::pmr::vector<act_t> pixels(input_nhwc.size() / image_c * padded_c, to_act(0.0f), staging);
     for (std::size_t p{0}; p < input_nhwc.size() / image_c; ++p)
     {
         for (std::size_t c{0}; c < image_c; ++c)
@@ -170,8 +173,27 @@ int main(int argc, char** argv)
     int status{0};
     for (const bool fuse : {false, true})
     {
-        forward(*network, *backend, input, fuse);
-        backend->sync();
+        // the third pass is a graph replay when graphs are on; zeroing the
+        // outputs first makes sure the compared values come from it
+        for (int pass{0}; pass < 3; ++pass)
+        {
+            if (pass == 2)
+            {
+#ifdef LITHIUM_CUDA
+                if (which == "gpu")
+                {
+                    cudaMemset(network->storage.data, 0, network->storage.count * sizeof(act_t));
+                }
+                else
+#endif
+                {
+                    std::fill(network->storage.data, network->storage.data + network->storage.count,
+                              to_act(0.0f));
+                }
+            }
+            forward(*network, *backend, input, fuse);
+            backend->sync();
+        }
 
         std::printf("\n%s\n", fuse ? "fused" : "unfused");
         std::puts("layer  type          shape       max|diff|      scale   diff/scale");
@@ -212,12 +234,14 @@ int main(int argc, char** argv)
                 continue;
             }
             const auto want = to_nhwc(raw, out.c, out.h, out.w);
+            std::vector<float> got(out.count());
+            backend->download(out, got.data());
 
             float worst{0.0f};
             float scale{0.0f};
             for (std::size_t k{0}; k < want.size(); ++k)
             {
-                worst = std::fmax(worst, std::fabs(want[k] - to_float(out.data[k])));
+                worst = std::fmax(worst, std::fabs(want[k] - got[k]));
                 scale = std::fmax(scale, std::fabs(want[k]));
             }
             const float relative{worst / std::fmax(scale, 1e-12f)};

@@ -50,14 +50,16 @@ int main(int argc, char** argv)
     }
 #endif
 
-#ifdef LITHIUM_CUDA
-    lithium::cuda_resource managed{};
-#endif
     std::pmr::memory_resource* resource{std::pmr::get_default_resource()};
+    std::pmr::memory_resource* activations{nullptr};
+    std::pmr::memory_resource* staging{resource};
 #ifdef LITHIUM_CUDA
+    lithium::device_resource device{};
+    lithium::pinned_resource pinned{};
     if (which == "gpu")
     {
-        resource = &managed;
+        activations = &device;
+        staging = &pinned;
     }
 #endif
 
@@ -75,7 +77,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    auto network{lithium::build_network(*cfg, std::move(*weights))};
+    auto network{lithium::build_network(*cfg, std::move(*weights), activations)};
     if (!network)
     {
         std::puts("failed to build network");
@@ -87,7 +89,7 @@ int main(int argc, char** argv)
     input.w = cfg->net.width;
     input.c = network->net.channels;
     std::pmr::vector<lithium::act_t> pixels(
-        static_cast<std::size_t>(input.c) * input.h * input.w, network->resource);
+        static_cast<std::size_t>(input.c) * input.h * input.w, staging);
     input.data = pixels.data();
 
     auto loaded{lithium::preprocess(argv[3], input, network->image_channels)};

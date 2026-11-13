@@ -3,8 +3,18 @@
 #include "tensor.hpp"
 #include "layer.hpp"
 
+#include <functional>
+
 namespace lithium
 {
+    struct PassKey
+    {
+        const void* network{nullptr};
+        const void* input{nullptr};
+        bool fuse{};
+        bool operator==(const PassKey&) const = default;
+    };
+
     struct Backend {
         virtual ~Backend() = default;
         virtual void conv(const NetworkLayer&, const Tensor& in, Tensor& out) = 0;
@@ -16,5 +26,7 @@ namespace lithium
         virtual void yolo(const NetworkLayer&, const Tensor& in, Tensor& out) = 0;
         virtual void download(const Tensor&, float* host) = 0;
         virtual void sync() = 0;
+        virtual void run(const PassKey&, const std::function<void()>& pass) { pass(); }
+        virtual Tensor stage(const Tensor& input) { return input; }
     };
 }

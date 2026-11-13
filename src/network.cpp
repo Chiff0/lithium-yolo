@@ -1,6 +1,8 @@
 #include "network.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 
 static std::size_t aligned(std::size_t count)
@@ -49,14 +51,50 @@ static std::pair<int, int> upsample_dim(int h, int w, int stride)
 
 namespace lithium
 {
-    std::expected<Network, network_error> build_network(const ParsedCfg& cfg, ParsedWeights&& weights)
+    Storage::Storage(std::pmr::memory_resource* resource, std::size_t count)
+        : resource{resource},
+          data{static_cast<act_t*>(resource->allocate(count * sizeof(act_t), 256))},
+          count{count}
+    {
+    }
+
+    Storage::Storage(Storage&& other) noexcept
+        : resource{std::exchange(other.resource, nullptr)},
+          data{std::exchange(other.data, nullptr)},
+          count{std::exchange(other.count, 0)}
+    {
+    }
+
+    Storage& Storage::operator=(Storage&& other) noexcept
+    {
+        if (this != &other)
+        {
+            this->~Storage();
+            resource = std::exchange(other.resource, nullptr);
+            data = std::exchange(other.data, nullptr);
+            count = std::exchange(other.count, 0);
+        }
+        return *this;
+    }
+
+    Storage::~Storage()
+    {
+        if (data != nullptr)
+        {
+            resource->deallocate(data, count * sizeof(act_t), 256);
+        }
+    }
+
+    std::expected<Network, network_error> build_network(const ParsedCfg& cfg, ParsedWeights&& weights,
+                                                        std::pmr::memory_resource* activations)
     {
         if (cfg.layers.size() != weights.layers.size())
         {
             return std::unexpected(network_error::size_not_equal);
         }
 
-        Network network{{}, weights.layers.get_allocator().resource(), {}, {}, std::pmr::vector<act_t>{weights.layers.get_allocator().resource()}};
+        Network network{};
+        network.resource = weights.layers.get_allocator().resource();
         network.net = cfg.net; 
         network.image_channels = cfg.net.channels;
         network.layers.reserve(cfg.layers.size());
@@ -122,16 +160,21 @@ namespace lithium
             prev_c = tensor.c;
 
         }
-        network.storage.resize(sum);
+        network.storage = Storage{activations != nullptr ? activations : network.resource,
+                                  static_cast<std::size_t>(sum)};
+        if (activations == nullptr)
+        {
+            std::fill(network.storage.data, network.storage.data + network.storage.count, act_t{});
+        }
         std::size_t offset{0};
 
         for (Tensor& tensor : network.outputs)
         {
-            tensor.data = network.storage.data() + offset;
+            tensor.data = network.storage.data + offset;
             offset += aligned(tensor.count());
         }
 
-        if (offset != network.storage.size())
+        if (offset != network.storage.count)
         {
             return std::unexpected(network_error::buffer_overlap);
         }
@@ -205,7 +248,7 @@ namespace lithium
         return true;
     }
 
-    void forward(Network& network, Backend& backend, const Tensor& input, bool fuse)
+    static void run_layers(Network& network, Backend& backend, const Tensor& input, bool fuse)
     {
         for (std::size_t i{0}; i < network.layers.size(); ++i)
         {
@@ -253,6 +296,11 @@ namespace lithium
                 }
             }
         }
+    }
+
+    void forward(Network& network, Backend& backend, const Tensor& input, bool fuse)
+    {
+        backend.run({&network, input.data, fuse}, [&] { run_layers(network, backend, backend.stage(input), fuse); });
     }
 
 

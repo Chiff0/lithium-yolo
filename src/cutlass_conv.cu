@@ -83,7 +83,7 @@ namespace lithium
             virtual ~Runner() = default;
             virtual void update(const NetworkLayer& layer, const Tensor& in, Tensor& out,
                                 const void* weights) = 0;
-            virtual void run() = 0;
+            virtual void run(cudaStream_t stream) = 0;
             const char* name{nullptr};
         };
 
@@ -107,9 +107,9 @@ namespace lithium
                 check(op.update(arguments<Conv>(layer, in, out, weights), workspace), "update");
             }
 
-            void run() override
+            void run(cudaStream_t stream) override
             {
-                check(op(), "launch");
+                check(op(stream), "launch");
             }
         };
 
@@ -157,22 +157,22 @@ namespace lithium
             {"256x32x32/4",  &make<ConvFor<256, 32, 32, 64, 32, 32, 4>>},
         };
 
-        float time_ms(Runner& runner)
+        float time_ms(Runner& runner, cudaStream_t stream)
         {
             for (int i{0}; i < 3; ++i)
             {
-                runner.run();
+                runner.run(stream);
             }
             cudaEvent_t start{}, stop{};
             cudaEventCreate(&start);
             cudaEventCreate(&stop);
             constexpr int reps{10};
-            cudaEventRecord(start);
+            cudaEventRecord(start, stream);
             for (int i{0}; i < reps; ++i)
             {
-                runner.run();
+                runner.run(stream);
             }
-            cudaEventRecord(stop);
+            cudaEventRecord(stop, stream);
             cudaEventSynchronize(stop);
             float ms{};
             cudaEventElapsedTime(&ms, start, stop);
@@ -205,7 +205,7 @@ namespace lithium
     }
 
     bool cutlass_conv(CutlassConvs* convs, const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                      const void* weights)
+                      const void* weights, cudaStream_t stream)
     {
         CutlassConvs::Plan* plan{nullptr};
         for (const auto& existing : convs->plans)
@@ -238,7 +238,7 @@ namespace lithium
             {
                 for (std::size_t i{0}; i < runners.size(); ++i)
                 {
-                    const float ms{time_ms(*runners[i])};
+                    const float ms{time_ms(*runners[i], stream)};
                     times[i] = (round == 0) ? ms : std::min(times[i], ms);
                 }
             }
@@ -279,7 +279,7 @@ namespace lithium
             plan->out = out.data;
         }
 
-        plan->runner->run();
+        plan->runner->run(stream);
         return true;
     }
 }

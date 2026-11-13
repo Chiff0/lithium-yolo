@@ -1,0 +1,49 @@
+one forward pass: 34 kernels, 3.736 ms of GPU time
+
+category                 kernels       ms   share
+conv (CUTLASS)                10    1.867   50.0%
+layer 0 (direct conv)          1    0.753   20.2%
+bias + leaky + maxpool         4    0.424   11.4%
+bias + leaky                   8    0.225    6.0%
+GEMM (cuBLAS)                  2    0.166    4.5%
+im2col                         2    0.094    2.5%
+route (concat)                 3    0.075    2.0%
+yolo sigmoid                   2    0.067    1.8%
+maxpool                        1    0.033    0.9%
+upsample                       1    0.031    0.8%
+
+kernel sequence
+  0    0.753 ms  layer 0 (direct conv)   layer_0_conv_maxpool
+  1    0.267 ms  conv (CUTLASS)          Kernel
+  2    0.207 ms  bias + leaky + maxpool  bias_activate_maxpool
+  3    0.205 ms  conv (CUTLASS)          Kernel
+  4    0.109 ms  bias + leaky + maxpool  bias_activate_maxpool
+  5    0.204 ms  conv (CUTLASS)          Kernel
+  6    0.059 ms  bias + leaky + maxpool  bias_activate_maxpool
+  7    0.129 ms  conv (CUTLASS)          Kernel
+  8    0.037 ms  bias + leaky            bias_activate
+  9    0.033 ms  maxpool                 maxpool
+ 10    0.160 ms  conv (CUTLASS)          Kernel
+ 11    0.049 ms  bias + leaky + maxpool  bias_activate_maxpool
+ 12    0.328 ms  conv (CUTLASS)          Kernel
+ 13    0.036 ms  bias + leaky            bias_activate
+ 14    0.053 ms  conv (CUTLASS)          Kernel
+ 15    0.015 ms  bias + leaky            bias_activate
+ 16    0.260 ms  conv (CUTLASS)          Kernel
+ 17    0.023 ms  bias + leaky            bias_activate
+ 18    0.035 ms  im2col                  im2col
+ 19    0.073 ms  GEMM (cuBLAS)           Kernel2
+ 20    0.015 ms  bias + leaky            bias_activate
+ 21    0.024 ms  yolo sigmoid            apply_sigmoid
+ 22    0.013 ms  route (concat)          concat_slice
+ 23    0.025 ms  conv (CUTLASS)          Kernel
+ 24    0.011 ms  bias + leaky            bias_activate
+ 25    0.031 ms  upsample                upsample
+ 26    0.018 ms  route (concat)          concat_slice
+ 27    0.043 ms  route (concat)          concat_slice
+ 28    0.237 ms  conv (CUTLASS)          Kernel
+ 29    0.036 ms  bias + leaky            bias_activate
+ 30    0.059 ms  im2col                  im2col
+ 31    0.094 ms  GEMM (cuBLAS)           Kernel2
+ 32    0.052 ms  bias + leaky            bias_activate
+ 33    0.043 ms  yolo sigmoid            apply_sigmoid

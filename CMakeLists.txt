@@ -11,6 +11,7 @@ option(LITHIUM_FAST_MATH  "Relax IEEE float semantics (-ffast-math)"            
 
 
 option(LITHIUM_FP32       "Run the CUDA backend in FP32 instead of FP16"        OFF)
+option(LITHIUM_GRAPHS     "Replay forward() as a CUDA graph on the CUDA backend" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -69,6 +70,9 @@ if(LITHIUM_CUDA)
         target_compile_definitions(lithium_core PUBLIC LITHIUM_HALF)
     endif()
     target_compile_definitions(lithium_core PUBLIC LITHIUM_CUDA)
+    if(LITHIUM_GRAPHS)
+        target_compile_definitions(lithium_core PUBLIC LITHIUM_GRAPHS)
+    endif()
     target_link_libraries(lithium_core PUBLIC CUDA::cudart CUDA::cublas)
 
 

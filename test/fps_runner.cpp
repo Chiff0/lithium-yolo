@@ -21,25 +21,28 @@ int main(int argc, char** argv)
     }
     const double fps{std::atof(argv[4])};
 
-#ifdef LITHIUM_CUDA
-    lithium::cuda_resource managed{};
-    std::pmr::memory_resource* resource{&managed};
-#else
     std::pmr::memory_resource* resource{std::pmr::get_default_resource()};
+    std::pmr::memory_resource* activations{nullptr};
+    std::pmr::memory_resource* staging{resource};
+#ifdef LITHIUM_CUDA
+    lithium::device_resource device{};
+    lithium::pinned_resource pinned{};
+    activations = &device;
+    staging = &pinned;
 #endif
 
     auto cfg{lithium::parse_cfg(argv[1])};
     if (!cfg) { std::puts("cfg"); return 1; }
     auto weights{lithium::parse_weights(argv[2], *cfg, resource)};
     if (!weights) { std::puts("weights"); return 1; }
-    auto network{lithium::build_network(*cfg, std::move(*weights))};
+    auto network{lithium::build_network(*cfg, std::move(*weights), activations)};
     if (!network) { std::puts("network"); return 1; }
 
     lithium::Tensor input{};
     input.h = cfg->net.height;
     input.w = cfg->net.width;
     input.c = network->net.channels;
-    std::pmr::vector<lithium::act_t> pixels(input.count(), network->resource);
+    std::pmr::vector<lithium::act_t> pixels(input.count(), staging);
     input.data = pixels.data();
     if (!lithium::preprocess(argv[3], input, network->image_channels)) { std::puts("preprocess"); return 1; }
 
