@@ -70,8 +70,7 @@ for spec in "cpu:$DARKNET/build-cpu" "cuda:$DARKNET/build-cuda" "cuda_fp16:$DARK
 done
 
 echo "== tensorrt"
-"$CXX" -O2 -std=c++17 -I/usr/local/cuda/include "$SRC/bench/runners/fps_runner_trt.cpp" \
-    -L/usr/local/cuda/lib64 -lcudart -lnvinfer -o "$BIN/trt_runner"
+nvcc -O2 -std=c++17 -x cu "$SRC/bench/runners/fps_runner_trt.cpp" -lnvinfer -o "$BIN/trt_runner"
 echo "-- trt_runner"
 for p in fp32 fp16 int8; do
     plan="$TRT_DIR/yolov3-tiny_$p.plan"

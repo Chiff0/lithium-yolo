@@ -17,8 +17,10 @@ REF = f"{SRC}/reference"
 CFG = f"{REF}/yolov3-tiny-letterbox.cfg"
 WTS = f"{REF}/yolov3-tiny.weights"
 IMG = f"{REF}/images/dog.jpg"
-# darknet is fed the exact tensor lithium's preprocess produces, so the input
-# is bit-identical and preprocessing stays out of the measured scope
+# darknet and TensorRT are fed the exact tensor lithium's preprocess produces,
+# so the input is bit-identical and preprocessing stays out of the measured
+# scope. Every runner's frame is the same: upload the input from host memory,
+# run the network including the YOLO activation, download the head outputs.
 INPUT_BIN = f"{REF}/dog/input_c3_h416_w416.bin"
 TRT_DIR = os.environ.get("LITHIUM_TRT_DIR", f"{HOME}/trt")
 
@@ -72,7 +74,7 @@ for _p in ("fp32", "fp16", "int8"):
     ENGINES.append({
         "id": f"tensorrt_{_p}", "framework": "tensorrt", "precision": _p.upper(),
         "label": f"TensorRT {_p.upper()}",
-        "cmd": [f"{BIN}/trt_runner", f"{TRT_DIR}/yolov3-tiny_{_p}.plan"], "env": {},
+        "cmd": [f"{BIN}/trt_runner", f"{TRT_DIR}/yolov3-tiny_{_p}.plan", INPUT_BIN], "env": {},
         "caveat": ("built with trtexec --int8 and no calibration data; speed only"
                    if _p == "int8" else ""),
     })

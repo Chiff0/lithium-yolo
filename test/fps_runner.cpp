@@ -5,6 +5,8 @@
 #ifdef LITHIUM_CUDA
 #include "allocator.hpp"
 #include "gpu_backend.hpp"
+
+#include <cuda_runtime_api.h>
 #endif
 
 #include <chrono>
@@ -54,8 +56,31 @@ int main(int argc, char** argv)
     lithium::Backend* backend{&cpu};
 #endif
 
-    for (int i{0}; i < 20; ++i) { forward(*network, *backend, input); }
-    backend->sync();
+    // Every frame ends with the YOLO head outputs in host memory, as it does for
+    // the Darknet and TensorRT runners. The CPU backend's outputs already are.
+    std::vector<std::size_t> heads{};
+    std::vector<std::pmr::vector<lithium::act_t>> results{};
+    for (std::size_t i{0}; i < network->layers.size(); ++i)
+    {
+        if (network->layers[i].spec.type == lithium::LayerSpec::LayerType::Yolo)
+        {
+            heads.push_back(i);
+            results.emplace_back(network->outputs[i].count(), staging);
+        }
+    }
+    auto frame = [&] {
+        forward(*network, *backend, input);
+#ifdef LITHIUM_CUDA
+        for (std::size_t k{0}; k < heads.size(); ++k)
+        {
+            cudaMemcpyAsync(results[k].data(), network->outputs[heads[k]].data,
+                            results[k].size() * sizeof(lithium::act_t), cudaMemcpyDeviceToHost, 0);
+        }
+#endif
+        backend->sync();
+    };
+
+    for (int i{0}; i < 20; ++i) { frame(); }
 
     const auto period = (fps > 0.0)
         ? std::chrono::duration<double>(1.0 / fps)
@@ -68,8 +93,7 @@ int main(int argc, char** argv)
     while (true)
     {
         const auto t0 = std::chrono::steady_clock::now();
-        forward(*network, *backend, input);
-        backend->sync();
+        frame();
         const auto t1 = std::chrono::steady_clock::now();
         busy += std::chrono::duration<double>(t1 - t0).count();
         ++frames;
