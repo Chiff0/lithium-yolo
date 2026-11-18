@@ -36,67 +36,62 @@ def held(a, cap):
 
 
 def figure(steps, agg, idle, outdir):
-    rows = [s for s in steps if (s["engine"], 0) in agg]
-    n = len(rows)
-    y = list(range(n))[::-1]
-    fig, (ax_fps, ax_w) = plt.subplots(1, 2, figsize=(11.5, 0.36 * n + 1.9), sharey=True,
+    # the CPU step (~0.3 fps) stays in the table: on a linear axis it is invisible,
+    # and a log axis would hide the size of the GPU steps
+    rows = [("step", s["engine"], f"{s['id']:02d}  {s['label']}") for s in steps
+            if s["id"] >= FIRST_GPU and (s["engine"], 0) in agg]
+    refs = [("ref", r, agg[(r, 0)]["label"]) for r in REFERENCES if (r, 0) in agg]
+    entries = rows + refs
+    # top to bottom, with a gap between the ladder and the reference rows
+    y = [-(i + (0.8 if kind == "ref" else 0.0)) for i, (kind, _, _) in enumerate(entries)]
+
+    fig, (ax_fps, ax_w) = plt.subplots(1, 2, figsize=(11.5, 0.36 * len(entries) + 2.2), sharey=True,
                                        gridspec_kw={"width_ratios": [1.35, 1]})
-    blue = P.FRAMEWORK["lithium"]
+    for yi, (kind, engine, _) in zip(y, entries):
+        a = agg[(engine, 0)]
+        color = P.FRAMEWORK[a["framework"]]
+        ax_fps.barh(yi, a["fps"], height=0.66, color=color, edgecolor=P.SURFACE, linewidth=2)
+        ax_fps.text(a["fps"], yi, f"  {a['fps']:.0f}", va="center", fontsize=8, color=P.INK)
 
-    for yi, s in zip(y, rows):
-        a = agg[(s["engine"], 0)]
-        ax_fps.barh(yi, a["fps"], height=0.66, color=blue, edgecolor=P.SURFACE, linewidth=2)
-        ax_fps.text(a["fps"], yi, f"  {a['fps']:.3g}", va="center", fontsize=8, color=P.INK)
-
-        b = agg.get((s["engine"], 30))
+        b = agg.get((engine, 30))
         if held(b, 30):
             ax_w.barh(yi, idle, height=0.66, color=P.IDLE, edgecolor=P.SURFACE, linewidth=2)
-            ax_w.barh(yi, b["vdd_in"] - idle, left=idle, height=0.66, color=blue,
+            ax_w.barh(yi, b["vdd_in"] - idle, left=idle, height=0.66, color=color,
                       edgecolor=P.SURFACE, linewidth=2)
             ax_w.text(b["vdd_in"], yi, f"  {b['vdd_in']:.2f}", va="center", fontsize=8, color=P.INK)
         else:
             ax_w.text(0.05, yi, "cannot hold 30 fps", va="center", fontsize=8, color=P.INK2)
 
-    for ref, style in zip(REFERENCES, ["-", "--", "-", "--"]):
-        a = agg.get((ref, 0))
-        b = agg.get((ref, 30))
-        color = P.FRAMEWORK[a["framework"]] if a else None
-        if a:
-            ax_fps.axvline(a["fps"], color=color, lw=1.4, ls=style, zorder=0)
-            ax_fps.text(a["fps"], n - 0.35, f"{a['label']} {a['fps']:.0f}", rotation=90, ha="right",
-                        va="top", fontsize=7.5, color=P.INK2)
-        if held(b, 30):
-            ax_w.axvline(b["vdd_in"], color=P.FRAMEWORK[b["framework"]], lw=1.4, ls=style, zorder=0)
-
-    ax_fps.set_xscale("log")
-    ax_fps.set_xlim(left=max(0.3, min(agg[(s["engine"], 0)]["fps"] for s in rows) * 0.6), right=1500)
-    ax_fps.set_xlabel("frames per second, uncapped (log)")
-    ax_fps.set_title("Throughput per step", fontsize=10)
+    top_fps = max(agg[(e, 0)]["fps"] for _, e, _ in entries)
+    ax_fps.set_xlim(0, top_fps * 1.12)
+    ax_fps.set_xlabel("frames per second, uncapped")
+    ax_fps.set_title("Throughput", fontsize=10)
     ax_fps.set_yticks(y)
-    ax_fps.set_yticklabels([f"{s['id']:02d}  {s['label']}" for s in rows], fontsize=8.5)
+    ax_fps.set_yticklabels([label for _, _, label in entries], fontsize=8.5)
+    for tick, (kind, _, _) in zip(ax_fps.get_yticklabels(), entries):
+        if kind == "ref":
+            tick.set_fontweight("bold")
     ax_fps.tick_params(axis="y", length=0)
     ax_fps.grid(axis="y", visible=False)
 
-    top = max([agg[(s["engine"], 30)]["vdd_in"] for s in rows if held(agg.get((s["engine"], 30)), 30)]
-              + [agg[(r, 30)]["vdd_in"] for r in REFERENCES if held(agg.get((r, 30)), 30)])
-    ax_w.set_xlim(0, top * 1.18)
+    held_w = [agg[(e, 30)]["vdd_in"] for _, e, _ in entries if held(agg.get((e, 30)), 30)]
+    ax_w.set_xlim(0, max(held_w) * 1.15)
     ax_w.set_xlabel("board power at 30 fps, W (grey = idle floor)")
     ax_w.set_title("Power at 30 fps", fontsize=10)
     ax_w.grid(axis="y", visible=False)
     ax_w.tick_params(axis="y", length=0)
 
-    present = {agg[(r, 0)]["framework"] for r in REFERENCES if (r, 0) in agg}
-    handles = [plt.Rectangle((0, 0), 1, 1, color=blue)]
-    labels = ["lithium, one bar per step"]
-    for f in ("tensorrt", "darknet"):
-        if f in present:
-            handles += [plt.Line2D([], [], color=P.FRAMEWORK[f], lw=1.4),
-                        plt.Line2D([], [], color=P.FRAMEWORK[f], lw=1.4, ls="--")]
-            labels += [f"{P.FRAMEWORK_NAME[f]} FP16", f"{P.FRAMEWORK_NAME[f]} FP32"]
-    fig.legend(handles, labels, loc="lower left", bbox_to_anchor=(0.01, -0.02), ncol=5, fontsize=8.5)
-    fig.suptitle("lithium optimisation ladder, YOLOv3-tiny 416x416 on Jetson Orin Nano",
+    present = {agg[(e, 0)]["framework"] for _, e, _ in entries}
+    handles = [plt.Rectangle((0, 0), 1, 1, color=P.FRAMEWORK[f]) for f in P.FRAMEWORK if f in present]
+    labels = [P.FRAMEWORK_NAME[f] for f in P.FRAMEWORK if f in present]
+    fig.legend(handles + [plt.Rectangle((0, 0), 1, 1, color=P.IDLE)], labels + ["idle floor"],
+               loc="lower left", bbox_to_anchor=(0.01, -0.01), ncol=4, fontsize=8.5)
+    cpu = agg.get((f"ladder_{0:02d}", 0))
+    note = f"step 00 (CPU backend, {cpu['fps']:.2f} fps) is in the table only" if cpu else ""
+    fig.text(0.99, 0.005, note, ha="right", va="bottom", fontsize=7.5, color=P.INK2)
+    fig.suptitle("lithium optimisation ladder, YOLOv3-tiny 416x416 on Jetson Orin Nano (one bar per commit)",
                  x=0.01, ha="left", fontsize=11, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
+    fig.tight_layout(rect=(0, 0.04, 1, 0.97))
     P.save(fig, outdir, "ladder")
 
 
