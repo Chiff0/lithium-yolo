@@ -180,6 +180,10 @@ static void upsample(
 
 static void concat(const std::vector<lithium::Tensor>& ins, lithium::Tensor& out)
 {
+    if (ins.size() == 1 && ins[0].data == out.data)
+    {
+        return;
+    }
     std::size_t pixels{static_cast<std::size_t>(out.h) * out.w};
     int offset{0};
     for (auto& tensor : ins)

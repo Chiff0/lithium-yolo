@@ -13,7 +13,7 @@
 
 using Layout = cutlass::layout::TensorNHWC;
 
-template <int TbM, int TbN, int TbK, int WM, int WN, int WK, int Stages>
+template <int TbM, int TbN, int TbK, int WM, int WN, int WK, int Stages, int OutAlign = 8>
 using ConvFor = cutlass::conv::device::ImplicitGemmConvolution<
     typename cutlass::conv::kernel::DefaultConv2dFprop<
         cutlass::half_t,
@@ -28,7 +28,7 @@ using ConvFor = cutlass::conv::device::ImplicitGemmConvolution<
         cutlass::gemm::GemmShape<TbM, TbN, TbK>,
         cutlass::gemm::GemmShape<WM, WN, WK>,
         cutlass::gemm::GemmShape<16, 8, 16>,
-        cutlass::epilogue::thread::LinearCombinationLeakyRelu<cutlass::half_t, 8, float, float,
+        cutlass::epilogue::thread::LinearCombinationLeakyRelu<cutlass::half_t, OutAlign, float, float,
                                                               cutlass::epilogue::thread::ScaleType::NoBetaScaling>,
         cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
         Stages,
@@ -149,6 +149,7 @@ namespace lithium
         {
             const char* name;
             Factory make;
+            int out_align{8};
         };
 
         const Candidate candidates[]{
@@ -159,6 +160,9 @@ namespace lithium
             {"64x64x32/10",  &make<ConvFor<64, 64, 32, 32, 32, 32, 10>>},
             {"128x32x32/4",  &make<ConvFor<128, 32, 32, 64, 32, 32, 4>>},
             {"256x32x32/4",  &make<ConvFor<256, 32, 32, 64, 32, 32, 4>>},
+            {"128x64x32/6 align1", &make<ConvFor<128, 64, 32, 64, 32, 32, 6, 1>>, 1},
+            {"64x128x32/6 align1", &make<ConvFor<64, 128, 32, 32, 64, 32, 6, 1>>, 1},
+            {"64x64x32/10 align1", &make<ConvFor<64, 64, 32, 32, 32, 32, 10, 1>>, 1},
         };
 
         float time_ms(Runner& runner, cudaStream_t stream)
@@ -228,8 +232,13 @@ namespace lithium
             plan->key = weights;
 
             std::vector<std::unique_ptr<Runner>> runners{};
+            const int out_align{out.c % 8 == 0 ? 8 : 1};
             for (const Candidate& candidate : candidates)
             {
+                if (candidate.out_align != out_align)
+                {
+                    continue;
+                }
                 std::unique_ptr<Runner> runner{candidate.make(candidate.name, layer, in, out, weights, bias)};
                 if (runner != nullptr)
                 {

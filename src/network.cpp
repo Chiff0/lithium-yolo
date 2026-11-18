@@ -41,6 +41,12 @@ static int route_channels(const std::vector<lithium::Tensor>& outputs,
     return sum / groups;
 }
 
+static bool aliases_source(const lithium::LayerSpec& layer)
+{
+    return layer.type == lithium::LayerSpec::LayerType::Route && layer.route_layers.size() == 1
+        && layer.route_groups == 1;
+}
+
 static std::pair<int, int> upsample_dim(int h, int w, int stride)
 {
     return {h * stride, w * stride};
@@ -153,7 +159,10 @@ namespace lithium
             }
 
 
-            sum += static_cast<int>(aligned(tensor.count()));
+            if (!aliases_source(layer))
+            {
+                sum += static_cast<int>(aligned(tensor.count()));
+            }
             network.outputs.push_back(tensor);
             prev_h = tensor.h;
             prev_w = tensor.w;
@@ -168,8 +177,14 @@ namespace lithium
         }
         std::size_t offset{0};
 
-        for (Tensor& tensor : network.outputs)
+        for (std::size_t i{0}; i < network.outputs.size(); ++i)
         {
+            Tensor& tensor{network.outputs[i]};
+            if (aliases_source(cfg.layers[i]))
+            {
+                tensor.data = network.outputs[cfg.layers[i].route_layers[0]].data;
+                continue;
+            }
             tensor.data = network.storage.data + offset;
             offset += aligned(tensor.count());
         }
@@ -226,6 +241,39 @@ namespace lithium
         return network;
     }
 
+    static bool read_elsewhere(const Network& network, std::size_t layer, std::size_t reader)
+    {
+        for (std::size_t i{0}; i < network.layers.size(); ++i)
+        {
+            if (i == reader)
+            {
+                continue;
+            }
+            for (int source : network.layers[i].spec.route_layers)
+            {
+                if (static_cast<std::size_t>(source) == layer)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool fuses_upsample_route(const Network& network, std::size_t layer)
+    {
+        if (layer + 1 >= network.layers.size()
+            || network.layers[layer].spec.type != LayerSpec::LayerType::Upsample
+            || network.layers[layer + 1].spec.type != LayerSpec::LayerType::Route)
+        {
+            return false;
+        }
+        const LayerSpec& route{network.layers[layer + 1].spec};
+        return route.route_groups == 1 && !route.route_layers.empty()
+            && static_cast<std::size_t>(route.route_layers[0]) == layer
+            && !read_elsewhere(network, layer, layer + 1);
+    }
+
     bool fuses_maxpool(const Network& network, std::size_t layer)
     {
         if (layer + 1 >= network.layers.size()
@@ -276,6 +324,18 @@ namespace lithium
                 }
                 case LayerSpec::LayerType::Upsample:
                 {
+                    if (fuse && fuses_upsample_route(network, i))
+                    {
+                        std::vector<Tensor> tensors{};
+                        for (std::size_t source : network.layers[i + 1].spec.route_layers)
+                        {
+                            tensors.push_back(network.outputs[source]);
+                        }
+                        backend.upsample_concat(src, network.outputs[i], layer.spec.stride,
+                                                tensors, network.outputs[i + 1]);
+                        ++i;
+                        break;
+                    }
                     backend.upsample(src, network.outputs[i], layer.spec.stride);
                     break;
                 }

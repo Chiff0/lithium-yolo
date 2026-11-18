@@ -204,7 +204,7 @@ int main(int argc, char** argv)
         for (std::size_t i{0}; i < network->outputs.size(); ++i)
         {
             const Tensor& out = network->outputs[i];
-            if (fuse && fuses_maxpool(*network, i))
+            if (fuse && (fuses_maxpool(*network, i) || fuses_upsample_route(*network, i)))
             {
                 ++skipped;
                 std::printf("%4zu  %-9s %4dx%3dx%-4d  fused into the next layer\n",

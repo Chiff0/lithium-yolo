@@ -23,6 +23,12 @@ namespace lithium
                                   const Tensor& in, Tensor& conv_out, Tensor& pool_out) = 0;
         virtual void upsample(const Tensor& in, Tensor& out, int stride) = 0;
         virtual void concat(const std::vector<Tensor>& ins, Tensor& out) = 0;
+        virtual void upsample_concat(const Tensor& in, Tensor& up, int stride,
+                                     const std::vector<Tensor>& ins, Tensor& out)
+        {
+            upsample(in, up, stride);
+            concat(ins, out);
+        }
         virtual void yolo(const NetworkLayer&, const Tensor& in, Tensor& out) = 0;
         virtual void download(const Tensor&, float* host) = 0;
         virtual void sync() = 0;

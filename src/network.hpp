@@ -47,6 +47,7 @@ namespace lithium
     std::expected<Network, network_error> build_network(const ParsedCfg&, ParsedWeights&&,
                                                         std::pmr::memory_resource* activations = nullptr);
     bool fuses_maxpool(const Network&, std::size_t layer);
+    bool fuses_upsample_route(const Network&, std::size_t layer);
     void forward(Network&, Backend&, const Tensor& input, bool fuse = true);
 
 }

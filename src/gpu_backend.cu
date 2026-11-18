@@ -239,7 +239,7 @@ __global__ void layer_0_conv_maxpool(const act_t* in, act_t* out, int H, int W)
 }
 
 __global__ void upsample(const act_t* in, act_t* out, int n, int co, int ho, int wo, 
-                         int ci, int hi, int wi, int stride)
+                         int ci, int hi, int wi, int stride, int out_stride)
 {
     int idx_out = threadIdx.x + blockDim.x * blockIdx.x;
     
@@ -251,7 +251,7 @@ __global__ void upsample(const act_t* in, act_t* out, int n, int co, int ho, int
 
     int idx_in = (y * wi + x) * ci + c;
 
-    out[idx_out] = in[idx_in];
+    out[(idx_out / co) * out_stride + c] = in[idx_in];
     
     return;
 }
@@ -551,12 +551,37 @@ namespace lithium
         ::upsample<<<blocks, threads, 0, stream>>>(in.data, out.data, len, 
             out.c, out.h, out.w, 
             in.c, in.h, in.w, 
-            stride);
+            stride, out.c);
             
         }
         
+    void GPUBackend::upsample_concat(const Tensor& in, Tensor& up, int stride,
+                                     const std::vector<Tensor>& ins, Tensor& out)
+    {
+        int len{static_cast<int>(up.count())};
+        int threads{256};
+        ::upsample<<<ceil_div(len, threads), threads, 0, stream>>>(in.data, out.data, len,
+            up.c, up.h, up.w,
+            in.c, in.h, in.w,
+            stride, out.c);
+
+        int offset{up.c};
+        for (std::size_t i{1}; i < ins.size(); ++i)
+        {
+            const Tensor& tensor{ins[i]};
+            int n{static_cast<int>(tensor.count())};
+            concat_slice<<<ceil_div(n, threads), threads, 0, stream>>>(tensor.data, out.data, n,
+                                                                       tensor.c, out.c, offset);
+            offset += tensor.c;
+        }
+    }
+
     void GPUBackend::concat(const std::vector<Tensor>& ins, Tensor& out)
     {
+        if (ins.size() == 1 && ins[0].data == out.data)
+        {
+            return;
+        }
         int threads{256};
         int offset{0};
         for (const Tensor& tensor : ins)

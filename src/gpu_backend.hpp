@@ -24,6 +24,8 @@ namespace lithium
                           const Tensor& in, Tensor& conv_out, Tensor& pool_out) override;
         void upsample(const Tensor& in, Tensor& out, int stride) override;
         void concat(const std::vector<Tensor>& ins, Tensor& out) override;
+        void upsample_concat(const Tensor& in, Tensor& up, int stride,
+                             const std::vector<Tensor>& ins, Tensor& out) override;
         void yolo(const NetworkLayer& layer, const Tensor& in, Tensor& out) override;
         void download(const Tensor& device, float* host) override;
         void sync() override;
