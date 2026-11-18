@@ -427,7 +427,7 @@ static bool is_layer_0(const lithium::NetworkLayer& layer, const lithium::Tensor
 
 namespace lithium 
 {
-    void GPUBackend::convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out)
+    bool GPUBackend::convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out)
     {
         check_handle();
 
@@ -436,9 +436,10 @@ namespace lithium
         {
             cutlass = cutlass_create();
         }
-        if (cutlass_conv(cutlass, layer, in, out, weights_for(layer), stream))
+        if (!layer.spec.batch_norm
+            && cutlass_conv(cutlass, layer, in, out, weights_for(layer), half_bias_for(layer), stream))
         {
-            return;
+            return true;
         }
 #endif
         
@@ -458,6 +459,7 @@ namespace lithium
 
         gemm(work, out, static_cast<const act_t*>(weights_for(layer)),
              out.h * out.w, patch_len, out.c, handle);
+        return false;
     }
 
     void GPUBackend::conv(const NetworkLayer& layer, const Tensor& in, Tensor& out)
@@ -470,7 +472,10 @@ namespace lithium
             return;
         }
 
-        convolve(layer, in, out);
+        if (convolve(layer, in, out))
+        {
+            return;
+        }
 
         int len{static_cast<int>(out.count())};
         int threads{256};
@@ -511,7 +516,11 @@ namespace lithium
             return;
         }
 
-        convolve(conv, in, conv_out);
+        if (convolve(conv, in, conv_out))
+        {
+            GPUBackend::maxpool(pool, conv_out, pool_out);
+            return;
+        }
 
         int len{static_cast<int>(pool_out.count())};
         int threads{256};
@@ -654,7 +663,7 @@ namespace lithium
     {
         for (const DeviceCopy& entry : device_copies)
         {
-            if (entry.key != key)
+            if (entry.key != key || entry.half != half)
             {
                 continue;
             }
@@ -669,7 +678,7 @@ namespace lithium
         }
         sync();
         void* copy{upload(key, count, half)};
-        device_copies.push_back({key, copy, count});
+        device_copies.push_back({key, copy, count, half});
         return copy;
     }
 
@@ -686,6 +695,11 @@ namespace lithium
     const float* GPUBackend::bias_for(const NetworkLayer& layer)
     {
         return static_cast<const float*>(device_copy(layer.weights.biases.data(), layer.weights.biases.size(), false));
+    }
+
+    const void* GPUBackend::half_bias_for(const NetworkLayer& layer)
+    {
+        return device_copy(layer.weights.biases.data(), layer.weights.biases.size(), true);
     }
 
     void GPUBackend::reserve_workspace(std::size_t floats)

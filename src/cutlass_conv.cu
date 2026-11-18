@@ -3,6 +3,7 @@
 #include <cutlass/cutlass.h>
 #include <cutlass/conv/kernel/default_conv2d_fprop.h>
 #include <cutlass/conv/device/implicit_gemm_convolution.h>
+#include <cutlass/epilogue/thread/linear_combination_leaky_relu.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -27,7 +28,8 @@ using ConvFor = cutlass::conv::device::ImplicitGemmConvolution<
         cutlass::gemm::GemmShape<TbM, TbN, TbK>,
         cutlass::gemm::GemmShape<WM, WN, WK>,
         cutlass::gemm::GemmShape<16, 8, 16>,
-        cutlass::epilogue::thread::LinearCombination<cutlass::half_t, 8, float, float>,
+        cutlass::epilogue::thread::LinearCombinationLeakyRelu<cutlass::half_t, 8, float, float,
+                                                              cutlass::epilogue::thread::ScaleType::NoBetaScaling>,
         cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
         Stages,
         cutlass::arch::OpMultiplyAdd,
@@ -40,7 +42,7 @@ namespace lithium
     {
         template <class Conv>
         typename Conv::Arguments arguments(const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                                           const void* weights)
+                                           const void* weights, const void* bias)
         {
             const int k{layer.spec.size};
             const int pad{layer.spec.pad};
@@ -59,14 +61,16 @@ namespace lithium
             auto* x{reinterpret_cast<cutlass::half_t*>(in.data)};
             auto* w{reinterpret_cast<cutlass::half_t*>(const_cast<void*>(weights))};
             auto* y{reinterpret_cast<cutlass::half_t*>(out.data)};
+            auto* b{reinterpret_cast<cutlass::half_t*>(const_cast<void*>(bias))};
+            const float leaky{layer.spec.activation == Activation::Leaky ? 0.1f : 1.0f};
 
             return {
                 problem,
                 {x, Layout::packed({1, in.h, in.w, in.c})},
                 {w, Layout::packed({out.c, k, k, in.c})},
+                {b, Layout::Stride(0)},
                 {y, Layout::packed({1, out.h, out.w, out.c})},
-                {y, Layout::packed({1, out.h, out.w, out.c})},
-                {1.0f, 0.0f}};
+                {1.0f, 1.0f, leaky}};
         }
 
         void check(cutlass::Status status, const char* what)
@@ -82,7 +86,7 @@ namespace lithium
         {
             virtual ~Runner() = default;
             virtual void update(const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                                const void* weights) = 0;
+                                const void* weights, const void* bias) = 0;
             virtual void run(cudaStream_t stream) = 0;
             const char* name{nullptr};
         };
@@ -102,9 +106,9 @@ namespace lithium
             }
 
             void update(const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                        const void* weights) override
+                        const void* weights, const void* bias) override
             {
-                check(op.update(arguments<Conv>(layer, in, out, weights), workspace), "update");
+                check(op.update(arguments<Conv>(layer, in, out, weights, bias), workspace), "update");
             }
 
             void run(cudaStream_t stream) override
@@ -115,9 +119,9 @@ namespace lithium
 
         template <class Conv>
         std::unique_ptr<Runner> make(const char* name, const NetworkLayer& layer, const Tensor& in,
-                                     Tensor& out, const void* weights)
+                                     Tensor& out, const void* weights, const void* bias)
         {
-            const typename Conv::Arguments args{arguments<Conv>(layer, in, out, weights)};
+            const typename Conv::Arguments args{arguments<Conv>(layer, in, out, weights, bias)};
             if (Conv::can_implement(args) != cutlass::Status::kSuccess)
             {
                 return nullptr;
@@ -139,7 +143,7 @@ namespace lithium
         }
 
         using Factory = std::unique_ptr<Runner> (*)(const char*, const NetworkLayer&, const Tensor&,
-                                                   Tensor&, const void*);
+                                                   Tensor&, const void*, const void*);
 
         struct Candidate
         {
@@ -205,7 +209,7 @@ namespace lithium
     }
 
     bool cutlass_conv(CutlassConvs* convs, const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                      const void* weights, cudaStream_t stream)
+                      const void* weights, const void* bias, cudaStream_t stream)
     {
         CutlassConvs::Plan* plan{nullptr};
         for (const auto& existing : convs->plans)
@@ -226,7 +230,7 @@ namespace lithium
             std::vector<std::unique_ptr<Runner>> runners{};
             for (const Candidate& candidate : candidates)
             {
-                std::unique_ptr<Runner> runner{candidate.make(candidate.name, layer, in, out, weights)};
+                std::unique_ptr<Runner> runner{candidate.make(candidate.name, layer, in, out, weights, bias)};
                 if (runner != nullptr)
                 {
                     runners.push_back(std::move(runner));
@@ -274,7 +278,7 @@ namespace lithium
 
         if (plan->in != in.data || plan->out != out.data)
         {
-            plan->runner->update(layer, in, out, weights);
+            plan->runner->update(layer, in, out, weights, bias);
             plan->in = in.data;
             plan->out = out.data;
         }

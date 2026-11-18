@@ -12,5 +12,5 @@ namespace lithium
     CutlassConvs* cutlass_create();
     void cutlass_destroy(CutlassConvs* convs);
     bool cutlass_conv(CutlassConvs* convs, const NetworkLayer& layer, const Tensor& in, Tensor& out,
-                      const void* weights, cudaStream_t stream);
+                      const void* weights, const void* bias, cudaStream_t stream);
 }

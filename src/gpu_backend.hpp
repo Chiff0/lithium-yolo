@@ -40,10 +40,12 @@ namespace lithium
             const float* key{nullptr};
             void*        data{nullptr};
             std::size_t  count{0};
+            bool         half{false};
         };
         std::vector<DeviceCopy> device_copies{};
         const void* device_copy(const float* key, std::size_t count, bool half);
         const float* bias_for(const NetworkLayer& layer);
+        const void* half_bias_for(const NetworkLayer& layer);
 
         void* input_device{nullptr};
         std::size_t input_bytes{0};
@@ -56,7 +58,7 @@ namespace lithium
         std::size_t workspace_floats{0};
         void reserve_workspace(std::size_t floats);
         void check_handle();
-        void convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out);
+        bool convolve(const NetworkLayer& layer, const Tensor& in, Tensor& out);
 
         const void* weights_for(const NetworkLayer& layer);
 
