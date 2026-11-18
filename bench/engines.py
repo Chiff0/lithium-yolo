@@ -79,6 +79,21 @@ for _p in ("fp32", "fp16", "int8"):
                    if _p == "int8" else ""),
     })
 
+# optimisation ladder: one engine per step in bench/ladder/steps.tsv, each an old
+# commit built with bench/ladder/build.sh and run by bench/ladder/runner.cpp
+_STEPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ladder", "steps.tsv")
+if os.path.exists(_STEPS):
+    with open(_STEPS) as _f:
+        for _line in _f:
+            if not _line.strip() or _line.startswith("#"):
+                continue
+            _id, _commit, _api, _options, _label = _line.rstrip("\n").split("\t")
+            ENGINES.append({
+                "id": f"ladder_{_id}", "framework": "lithium", "precision": f"step {_id}",
+                "label": f"{_id} {_label}", "ladder": int(_id), "commit": _commit,
+                "cmd": [f"{BIN}/ladder/{_id}", CFG, WTS, IMG], "env": {},
+            })
+
 BY_ID = {e["id"]: e for e in ENGINES}
 FRAMEWORKS = ["lithium", "darknet", "tensorrt"]
 
